@@ -1,0 +1,8 @@
+aiogram>=3.4.1
+aiosqlite>=0.20.0
+redis>=5.0.3
+openai>=1.14.0
+duckduckgo-search>=5.2.1
+python-dotenv>=1.0.1
+faster-whisper>=1.0.1
+Pillow>=10.2.0

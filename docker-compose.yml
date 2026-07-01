@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  bot:
+    build: .
+    container_name: aiogram_bot
+    depends_on:
+      - redis
+    env_file:
+      - .env
+    environment:
+      # Override the REDIS_URL to point to the docker redis service
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      # Persist the sqlite database on the host machine
+      - ./bot_data.db:/app/bot_data.db
+    restart: unless-stopped
+    # Needed to reach Ollama running on the host machine via host.docker.internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  redis:
+    image: redis:7-alpine
+    container_name: aiogram_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      # Persist the redis queues
+      - redis_data:/data
+    restart: unless-stopped
+
+volumes:
+  redis_data:
