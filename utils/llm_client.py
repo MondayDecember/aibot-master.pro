@@ -11,26 +11,29 @@ client = AsyncOpenAI(
     api_key=OLLAMA_API_KEY
 )
 
-async def generate_response(prompt: str, user_id: int, context_type: str = "text") -> str:
+async def generate_response(prompt: str, user_id: int, context_type: str = "text", model_override: str = None) -> str:
     """
     Generate response from the local LLM.
     Fetches the last 5 conversation items from SQLite database as context.
+    `model_override` lets the caller use a user-selected model (see /model in
+    the bot) instead of the default TEXT_MODEL. Ignored for vision - photo
+    analysis always needs a multimodal model, so it always uses VISION_MODEL.
     """
     # LLM client retrieves the conversation history from SQLite database
     history = await get_history(user_id, limit=5)
     messages = history.copy()
-    
+
     # Add the current prompt
     if context_type == "text" or context_type == "voice" or context_type == "web_search":
         messages.append({"role": "user", "content": prompt})
-        model = TEXT_MODEL
+        model = model_override or TEXT_MODEL
     elif context_type == "vision":
         # If it's vision, prompt is expected to be a list for the content with text and image_url
         messages.append({"role": "user", "content": prompt})
         model = VISION_MODEL
     else:
         messages.append({"role": "user", "content": prompt})
-        model = TEXT_MODEL
+        model = model_override or TEXT_MODEL
 
     try:
         response = await client.chat.completions.create(
@@ -43,15 +46,18 @@ async def generate_response(prompt: str, user_id: int, context_type: str = "text
         logger.error(f"LLM Client error: {e}")
         return "I'm sorry, I couldn't process that request at the moment."
 
-async def should_search_web(prompt: str) -> bool:
+async def should_search_web(prompt: str, model_override: str = None) -> bool:
     """
     Ask the model whether answering `prompt` needs current/real-time information
     from the web (news, prices, weather, sports scores, recent releases, etc.).
-    Defaults to False (no search) on any ambiguous answer or error.
+    Defaults to False (no search) on any ambiguous answer or error. Uses
+    `model_override` when given so the classifier runs on the same model that
+    will generate the answer (avoids swapping two different models in/out of
+    Ollama for a single message).
     """
     try:
         response = await client.chat.completions.create(
-            model=TEXT_MODEL,
+            model=model_override or TEXT_MODEL,
             messages=[
                 {
                     "role": "system",

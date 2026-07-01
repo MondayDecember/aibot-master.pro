@@ -4,7 +4,7 @@ import logging
 from aiogram import Bot
 from utils.llm_client import generate_response, should_search_web
 from utils.web_search import perform_web_search
-from db.database import get_history, add_message
+from db.database import get_history, add_message, get_user_model
 
 logger = logging.getLogger(__name__)
 
@@ -30,11 +30,12 @@ async def process_queue(bot: Bot, redis_client):
                 try:
                     final_prompt = prompt
                     final_context_type = context_type
+                    user_model = await get_user_model(user_id)  # None = use TEXT_MODEL default
 
                     # Let the model decide for itself if it needs to search the web
                     # (skip for explicit /web calls and non-text prompts like vision).
                     if context_type in ("text", "voice") and isinstance(prompt, str):
-                        if await should_search_web(prompt):
+                        if await should_search_web(prompt, model_override=user_model):
                             if bot_message_id:
                                 await bot.edit_message_text(
                                     chat_id=chat_id,
@@ -59,7 +60,7 @@ async def process_queue(bot: Bot, redis_client):
                             parse_mode="HTML"
                         )
 
-                    response_text = await generate_response(final_prompt, user_id, final_context_type)
+                    response_text = await generate_response(final_prompt, user_id, final_context_type, model_override=user_model)
 
                     # Persist the turn now, after history was fetched for generation,
                     # so the current message isn't duplicated into its own context.
