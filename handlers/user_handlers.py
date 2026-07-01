@@ -3,8 +3,8 @@ import json
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import CommandStart, Command
-from config import AVAILABLE_MODELS, TEXT_MODEL
-from db.database import clear_history, get_user_model, set_user_model
+from config import AVAILABLE_MODELS, TEXT_MODEL, PERSONAS
+from db.database import clear_history, get_user_model, set_user_model, get_user_persona, set_user_persona
 from utils.web_search import perform_web_search
 
 router = Router()
@@ -13,7 +13,8 @@ router = Router()
 async def cmd_start(message: Message):
     await message.answer(
         "Hello! I am your AI assistant. Send me text, voice messages, or photos, "
-        "use /web <query> to search the web, or /model to switch the text model."
+        "use /web <query> to search the web, /model to switch the text model, "
+        "or /persona to change my personality."
     )
 
 @router.message(Command("clear"))
@@ -53,6 +54,40 @@ async def cb_model(callback: CallbackQuery):
         f"Text model switched to: <code>{model_name}</code>",
         parse_mode="HTML",
         reply_markup=_model_keyboard(model_name)
+    )
+    await callback.answer(f"Switched to {key}")
+
+def _persona_keyboard(current_key: str) -> InlineKeyboardMarkup:
+    buttons = [
+        [InlineKeyboardButton(
+            text=("✅ " if key == current_key else "") + key,
+            callback_data=f"persona:{key}"
+        )]
+        for key in PERSONAS
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+@router.message(Command("persona"))
+async def cmd_persona(message: Message):
+    """Show current persona and let the user switch it. Applies to every reply, including photo descriptions."""
+    current = await get_user_persona(message.from_user.id) or "default"
+    await message.answer(
+        f"Current persona: <b>{current}</b>\nPick one:",
+        parse_mode="HTML",
+        reply_markup=_persona_keyboard(current)
+    )
+
+@router.callback_query(F.data.startswith("persona:"))
+async def cb_persona(callback: CallbackQuery):
+    key = callback.data.split(":", 1)[1]
+    if key not in PERSONAS:
+        await callback.answer("Unknown persona", show_alert=True)
+        return
+    await set_user_persona(callback.from_user.id, key)
+    await callback.message.edit_text(
+        f"Persona switched to: <b>{key}</b>",
+        parse_mode="HTML",
+        reply_markup=_persona_keyboard(key)
     )
     await callback.answer(f"Switched to {key}")
 

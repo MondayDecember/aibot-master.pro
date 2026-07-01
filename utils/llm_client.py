@@ -11,17 +11,24 @@ client = AsyncOpenAI(
     api_key=OLLAMA_API_KEY
 )
 
-async def generate_response(prompt: str, user_id: int, context_type: str = "text", model_override: str = None) -> str:
+async def generate_response(
+    prompt: str,
+    user_id: int,
+    context_type: str = "text",
+    model_override: str = None,
+    system_prompt: str = None,
+) -> str:
     """
     Generate response from the local LLM.
     Fetches the last 5 conversation items from SQLite database as context.
     `model_override` lets the caller use a user-selected model (see /model in
     the bot) instead of the default TEXT_MODEL. Ignored for vision - photo
     analysis always needs a multimodal model, so it always uses VISION_MODEL.
+    `system_prompt`, if given, is prepended as a system message (see /persona).
     """
     # LLM client retrieves the conversation history from SQLite database
     history = await get_history(user_id, limit=5)
-    messages = history.copy()
+    messages = ([{"role": "system", "content": system_prompt}] if system_prompt else []) + history
 
     # Add the current prompt
     if context_type == "text" or context_type == "voice" or context_type == "web_search":

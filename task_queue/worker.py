@@ -2,9 +2,10 @@ import asyncio
 import json
 import logging
 from aiogram import Bot
+from config import PERSONAS
 from utils.llm_client import generate_response, should_search_web
 from utils.web_search import perform_web_search
-from db.database import get_history, add_message, get_user_model
+from db.database import get_history, add_message, get_user_model, get_user_persona
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,8 @@ async def process_queue(bot: Bot, redis_client):
                     final_prompt = prompt
                     final_context_type = context_type
                     user_model = await get_user_model(user_id)  # None = use TEXT_MODEL default
+                    persona_key = await get_user_persona(user_id) or "default"
+                    system_prompt = PERSONAS.get(persona_key)
 
                     # Let the model decide for itself if it needs to search the web
                     # (skip for explicit /web calls and non-text prompts like vision).
@@ -60,7 +63,10 @@ async def process_queue(bot: Bot, redis_client):
                             parse_mode="HTML"
                         )
 
-                    response_text = await generate_response(final_prompt, user_id, final_context_type, model_override=user_model)
+                    response_text = await generate_response(
+                        final_prompt, user_id, final_context_type,
+                        model_override=user_model, system_prompt=system_prompt
+                    )
 
                     # Persist the turn now, after history was fetched for generation,
                     # so the current message isn't duplicated into its own context.
