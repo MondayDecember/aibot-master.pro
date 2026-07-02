@@ -1,6 +1,6 @@
 import logging
 from openai import AsyncOpenAI
-from config import OLLAMA_API_BASE, OLLAMA_API_KEY, TEXT_MODEL, VISION_MODEL
+from config import OLLAMA_API_BASE, OLLAMA_API_KEY, TEXT_MODEL, VISION_MODEL, HISTORY_LIMIT
 from db.database import get_history
 
 logger = logging.getLogger(__name__)
@@ -13,14 +13,14 @@ client = AsyncOpenAI(
 
 async def _build_request(prompt, user_id, context_type, model_override, system_prompt):
     """
-    Assemble the message list (last 5 history items from SQLite + optional
-    persona system prompt + current prompt) and pick the model.
+    Assemble the message list (last HISTORY_LIMIT history items from SQLite +
+    optional persona system prompt + current prompt) and pick the model.
     `model_override` lets the caller use a user-selected model (see /model in
     the bot) instead of the default TEXT_MODEL. Ignored for vision - photo
     analysis always needs a multimodal model, so it always uses VISION_MODEL.
     For vision, prompt is a list of content dicts (text + image_url).
     """
-    history = await get_history(user_id, limit=5)
+    history = await get_history(user_id, limit=HISTORY_LIMIT)
     messages = ([{"role": "system", "content": system_prompt}] if system_prompt else []) + history
     messages.append({"role": "user", "content": prompt})
     model = VISION_MODEL if context_type == "vision" else (model_override or TEXT_MODEL)

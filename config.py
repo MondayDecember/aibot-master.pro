@@ -41,6 +41,18 @@ ALLOWED_USER_IDS = _parse_allowed_ids(os.getenv("ALLOWED_USER_IDS", ""))
 # models have small context windows (llama3: 8k tokens), so keep this modest.
 DOC_MAX_CHARS = int(os.getenv("DOC_MAX_CHARS", "12000"))
 
+# How many past messages (user + bot combined) are given to the LLM as
+# conversation memory. Full history is stored in SQLite forever - this only
+# limits what fits into the model's context window. Higher = better memory
+# but slower replies and more RAM on small models.
+HISTORY_LIMIT = int(os.getenv("HISTORY_LIMIT", "10"))
+
+# Database backups: every BACKUP_INTERVAL_HOURS a consistent snapshot of the
+# SQLite db is written to <data dir>/backups/, keeping the newest BACKUP_KEEP
+# files. Set BACKUP_INTERVAL_HOURS=0 to disable.
+BACKUP_INTERVAL_HOURS = int(os.getenv("BACKUP_INTERVAL_HOURS", "24"))
+BACKUP_KEEP = int(os.getenv("BACKUP_KEEP", "7"))
+
 TEXT_MODEL = os.getenv("TEXT_MODEL", "llama3")
 VISION_MODEL = os.getenv("VISION_MODEL", "llama3.2-vision")
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")

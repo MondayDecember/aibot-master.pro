@@ -8,6 +8,7 @@ from redis.asyncio import Redis
 
 from config import BOT_TOKEN, REDIS_URL, OLLAMA_API_BASE, TEXT_MODEL, VISION_MODEL, AVAILABLE_MODELS
 from db.database import init_db
+from db.backup import backup_loop
 from task_queue.worker import process_queue
 
 # Handlers
@@ -94,8 +95,9 @@ async def main():
     dp.include_router(voice_router)
     dp.include_router(document_router)
 
-    # 5. Start Background Worker for LLM tasks
+    # 5. Start Background Worker for LLM tasks + periodic DB backups
     worker_task = asyncio.create_task(process_queue(bot, redis_client))
+    backup_task = asyncio.create_task(backup_loop())
 
     # 6. Start Polling
     logger.info("Starting bot polling...")
@@ -104,6 +106,7 @@ async def main():
         await dp.start_polling(bot)
     finally:
         worker_task.cancel()
+        backup_task.cancel()
         await redis_client.close()
         await bot.session.close()
         logger.info("Bot shut down gracefully.")
