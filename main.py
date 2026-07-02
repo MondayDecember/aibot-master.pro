@@ -1,10 +1,16 @@
 import asyncio
 import logging
+import os
+import tempfile
+import time
 import aiohttp
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
+from aiogram.types import BotCommand
 from redis.asyncio import Redis
+
+from utils.texts import t
 
 from config import BOT_TOKEN, REDIS_URL, OLLAMA_API_BASE, TEXT_MODEL, VISION_MODEL, AVAILABLE_MODELS
 from db.database import init_db
@@ -55,6 +61,32 @@ async def check_ollama():
             logger.warning(f"Model '{model}' is not installed in Ollama. Run: ollama pull {model}")
     logger.info(f"Ollama is reachable at {OLLAMA_API_BASE}")
 
+# The container healthcheck looks at this file's mtime (see docker-compose.yml)
+HEARTBEAT_FILE = os.getenv(
+    "HEARTBEAT_FILE", os.path.join(tempfile.gettempdir(), "aibot_healthy")
+)
+
+async def heartbeat_loop():
+    """Touch the heartbeat file so docker can tell a live bot from a hung one."""
+    while True:
+        try:
+            with open(HEARTBEAT_FILE, "w") as f:
+                f.write(str(time.time()))
+        except OSError as e:
+            logger.warning(f"Heartbeat write failed: {e}")
+        await asyncio.sleep(30)
+
+async def setup_commands(bot: Bot):
+    """Register the command menu shown by the '/' button in telegram."""
+    await bot.set_my_commands([
+        BotCommand(command="help", description=t("desc_help")),
+        BotCommand(command="clear", description=t("desc_clear")),
+        BotCommand(command="web", description=t("desc_web")),
+        BotCommand(command="model", description=t("desc_model")),
+        BotCommand(command="persona", description=t("desc_persona")),
+        BotCommand(command="stats", description=t("desc_stats")),
+    ])
+
 async def main():
     if not BOT_TOKEN:
         logger.error(
@@ -95,18 +127,22 @@ async def main():
     dp.include_router(voice_router)
     dp.include_router(document_router)
 
-    # 5. Start Background Worker for LLM tasks + periodic DB backups
+    # 5. Start Background Worker for LLM tasks, periodic DB backups and
+    #    the healthcheck heartbeat
     worker_task = asyncio.create_task(process_queue(bot, redis_client))
     backup_task = asyncio.create_task(backup_loop())
+    heartbeat_task = asyncio.create_task(heartbeat_loop())
 
     # 6. Start Polling
     logger.info("Starting bot polling...")
     try:
         await bot.delete_webhook(drop_pending_updates=True)
+        await setup_commands(bot)
         await dp.start_polling(bot)
     finally:
         worker_task.cancel()
         backup_task.cancel()
+        heartbeat_task.cancel()
         await redis_client.close()
         await bot.session.close()
         logger.info("Bot shut down gracefully.")

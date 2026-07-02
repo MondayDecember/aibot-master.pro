@@ -65,6 +65,27 @@ _TEXTS = {
             "Queue length: {queue}\n"
             "Database size: {db_size}"
         ),
+        "help": (
+            "🤖 <b>What I can do</b>\n"
+            "• Text - just write me a message\n"
+            "• Photos - I describe them or answer the question in the caption\n"
+            "• Voice messages - I transcribe and answer\n"
+            "• Documents (PDF / plain text) - I answer questions about the content\n\n"
+            "<b>Commands</b>\n"
+            "/web &lt;query&gt; - search the web\n"
+            "/model - switch the text model\n"
+            "/persona - change my personality\n"
+            "/clear - clear conversation history\n"
+            "/stats - bot statistics (admin only)\n\n"
+            "In groups I answer @mentions and replies to my messages."
+        ),
+        "admin_alert": "⚠️ Bot error:\n{error}",
+        "desc_help": "What the bot can do",
+        "desc_clear": "Clear conversation history",
+        "desc_web": "Search the web",
+        "desc_model": "Switch the text model",
+        "desc_persona": "Change the bot's personality",
+        "desc_stats": "Bot statistics (admin)",
     },
     "ru": {
         "start": (
@@ -125,6 +146,27 @@ _TEXTS = {
             "В очереди: {queue}\n"
             "Размер базы: {db_size}"
         ),
+        "help": (
+            "🤖 <b>Что я умею</b>\n"
+            "• Текст — просто напишите сообщение\n"
+            "• Фото — опишу или отвечу на вопрос из подписи\n"
+            "• Голосовые — распознаю речь и отвечу\n"
+            "• Документы (PDF / текст) — отвечу по содержимому\n\n"
+            "<b>Команды</b>\n"
+            "/web &lt;запрос&gt; — поиск в интернете\n"
+            "/model — сменить модель\n"
+            "/persona — сменить характер бота\n"
+            "/clear — очистить историю диалога\n"
+            "/stats — статистика (для администратора)\n\n"
+            "В группах отвечаю на @упоминания и реплаи на мои сообщения."
+        ),
+        "admin_alert": "⚠️ Ошибка бота:\n{error}",
+        "desc_help": "Что умеет бот",
+        "desc_clear": "Очистить историю диалога",
+        "desc_web": "Поиск в интернете",
+        "desc_model": "Сменить модель",
+        "desc_persona": "Сменить характер бота",
+        "desc_stats": "Статистика (админ)",
     },
 }
 

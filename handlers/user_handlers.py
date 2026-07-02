@@ -16,6 +16,10 @@ router = Router()
 async def cmd_start(message: Message):
     await message.answer(t("start"))
 
+@router.message(Command("help"))
+async def cmd_help(message: Message):
+    await message.answer(t("help"), parse_mode="HTML")
+
 @router.message(Command("clear"))
 async def cmd_clear(message: Message):
     # In groups this clears the shared group history, in private - the user's

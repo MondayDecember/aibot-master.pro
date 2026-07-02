@@ -5,6 +5,7 @@ import time
 from aiogram import Bot
 from aiogram.utils.chat_action import ChatActionSender
 from config import PERSONAS, AUTO_WEB_SEARCH, STREAM_RESPONSES
+from utils.alerts import notify_admin
 from utils.llm_client import generate_response, stream_response, should_search_web
 from utils.memory import needs_summary, update_summary
 from utils.texts import t
@@ -158,6 +159,7 @@ async def process_queue(bot: Bot, redis_client):
                             await bot.send_message(chat_id, chunk, parse_mode=None)
                 except Exception as e:
                     logger.error(f"Error generating response: {e}")
+                    await notify_admin(bot, e)
                     if bot_message_id:
                         await _edit_status(bot, chat_id, bot_message_id, t("error_generic"))
                     
@@ -166,4 +168,5 @@ async def process_queue(bot: Bot, redis_client):
             break
         except Exception as e:
             logger.error(f"Worker error: {e}")
+            await notify_admin(bot, e)
             await asyncio.sleep(1)
