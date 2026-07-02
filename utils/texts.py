@@ -171,7 +171,11 @@ _TEXTS = {
 }
 
 
-def t(key: str, **kwargs) -> str:
+def t(_key: str, **kwargs) -> str:
+    # Parameter is named _key, not key: the "switched_to" template takes a
+    # {key} placeholder, and t("switched_to", key=...) would otherwise
+    # collide with a same-named positional parameter (TypeError: got
+    # multiple values for argument 'key').
     lang = _TEXTS.get(BOT_LANGUAGE, _TEXTS["en"])
-    template = lang.get(key) or _TEXTS["en"][key]
+    template = lang.get(_key) or _TEXTS["en"][_key]
     return template.format(**kwargs) if kwargs else template
