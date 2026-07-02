@@ -10,5 +10,7 @@ README.md
 LICENSE
 install.sh
 install.ps1
+configure.sh
+configure.ps1
 Makefile
 tests/

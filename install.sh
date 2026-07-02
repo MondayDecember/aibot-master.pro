@@ -42,8 +42,33 @@ if [ ! -f .env ]; then
     read -r token </dev/tty
     [ -n "$token" ] || { echo "Ошибка: токен пустой."; exit 1; }
     sed_i "s|^BOT_TOKEN=.*|BOT_TOKEN=${token}|" .env
+
+    echo ""
+    echo "--- Пара вопросов (Enter = значение по умолчанию, всё можно поменять позже: bash configure.sh) ---"
+
+    printf "Язык бота: ru или en [ru]: "
+    read -r lang </dev/tty
+    [ "${lang:-ru}" = "en" ] && sed_i "s|^BOT_LANGUAGE=.*|BOT_LANGUAGE=en|" .env
+
+    echo "Ваш Telegram ID закроет бота от посторонних и даст вам /stats и оповещения об ошибках."
+    echo "Узнать ID: напишите боту @userinfobot. Пусто = бот открыт всем."
+    printf "Ваш Telegram ID []: "
+    read -r tgid </dev/tty
+    if echo "$tgid" | grep -qE '^[0-9]+$'; then
+        sed_i "s|^# ALLOWED_USER_IDS=.*|ALLOWED_USER_IDS=${tgid}|" .env
+    fi
+
+    printf "Автопоиск в интернете? Умнее, но ответы примерно вдвое медленнее. y/n [y]: "
+    read -r ws </dev/tty
+    [ "${ws:-y}" = "n" ] && sed_i "s|^AUTO_WEB_SEARCH=.*|AUTO_WEB_SEARCH=false|" .env
+
+    printf "Автообновление бота при выходе новых версий (Watchtower)? y/n [n]: "
+    read -r au </dev/tty
+    if [ "${au:-n}" = "y" ]; then
+        sed_i "s|^# COMPOSE_FILE=.*|COMPOSE_FILE=docker-compose.yml:docker-compose.autoupdate.yml|" .env
+    fi
 else
-    echo "Файл .env уже существует — оставляю как есть."
+    echo "Файл .env уже существует — оставляю как есть (настройки: bash configure.sh)."
 fi
 
 # Use Ollama on the host if it's already running, otherwise run it in docker.
@@ -65,8 +90,14 @@ else
     grep -q "^COMPOSE_PROFILES=" .env || echo "COMPOSE_PROFILES=ollama" >> .env
 fi
 
-echo "Собираю и запускаю контейнеры..."
-docker compose up -d --build
+if grep -q "^COMPOSE_FILE=" .env; then
+    # Auto-update mode: run from the prebuilt registry image, don't build
+    echo "Скачиваю готовый образ и запускаю контейнеры..."
+    docker compose up -d
+else
+    echo "Собираю и запускаю контейнеры..."
+    docker compose up -d --build
+fi
 
 # Pull the models the bot needs
 TEXT_MODEL=$(grep -E "^TEXT_MODEL=" .env | cut -d= -f2- || true)

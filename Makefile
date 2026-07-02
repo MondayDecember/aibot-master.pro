@@ -1,7 +1,10 @@
-.PHONY: install up down logs update
+.PHONY: install configure up down logs update
 
 install:
 	bash install.sh
+
+configure:
+	bash configure.sh
 
 up:
 	docker compose up -d --build

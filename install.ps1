@@ -45,8 +45,33 @@ function Install-Aibot {
         $token = Read-Host "Введите BOT_TOKEN (получить у @BotFather в Telegram)"
         if (-not $token) { Write-Host "Ошибка: токен пустой." -ForegroundColor Red; return }
         (Get-Content .env) -replace "^BOT_TOKEN=.*", "BOT_TOKEN=$token" | Set-Content .env
+
+        Write-Host ""
+        Write-Host "--- Пара вопросов (Enter = значение по умолчанию, всё можно поменять позже: .\configure.ps1) ---"
+
+        $lang = Read-Host "Язык бота: ru или en [ru]"
+        if ($lang -eq "en") {
+            (Get-Content .env) -replace "^BOT_LANGUAGE=.*", "BOT_LANGUAGE=en" | Set-Content .env
+        }
+
+        Write-Host "Ваш Telegram ID закроет бота от посторонних и даст вам /stats и оповещения об ошибках."
+        Write-Host "Узнать ID: напишите боту @userinfobot. Пусто = бот открыт всем."
+        $tgid = Read-Host "Ваш Telegram ID []"
+        if ($tgid -match "^\d+$") {
+            (Get-Content .env) -replace "^# ALLOWED_USER_IDS=.*", "ALLOWED_USER_IDS=$tgid" | Set-Content .env
+        }
+
+        $ws = Read-Host "Автопоиск в интернете? Умнее, но ответы примерно вдвое медленнее. y/n [y]"
+        if ($ws -eq "n") {
+            (Get-Content .env) -replace "^AUTO_WEB_SEARCH=.*", "AUTO_WEB_SEARCH=false" | Set-Content .env
+        }
+
+        $au = Read-Host "Автообновление бота при выходе новых версий (Watchtower)? y/n [n]"
+        if ($au -eq "y") {
+            (Get-Content .env) -replace "^# COMPOSE_FILE=.*", "COMPOSE_FILE=docker-compose.yml;docker-compose.autoupdate.yml" | Set-Content .env
+        }
     } else {
-        Write-Host "Файл .env уже существует — оставляю как есть."
+        Write-Host "Файл .env уже существует — оставляю как есть (настройки: .\configure.ps1)."
     }
 
     # Use Ollama on the host if it's already running, otherwise run it in docker.
@@ -71,8 +96,14 @@ function Install-Aibot {
         }
     }
 
-    Write-Host "Собираю и запускаю контейнеры..."
-    docker compose up -d --build
+    if (Select-String -Path .env -Pattern "^COMPOSE_FILE=" -Quiet) {
+        # Auto-update mode: run from the prebuilt registry image, don't build
+        Write-Host "Скачиваю готовый образ и запускаю контейнеры..."
+        docker compose up -d
+    } else {
+        Write-Host "Собираю и запускаю контейнеры..."
+        docker compose up -d --build
+    }
     if ($LASTEXITCODE -ne 0) {
         Write-Host "Ошибка: docker compose up завершился неудачно, см. вывод выше." -ForegroundColor Red
         return
