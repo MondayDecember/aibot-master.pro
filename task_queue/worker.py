@@ -49,12 +49,14 @@ async def process_queue(bot: Bot, redis_client):
     logger.info("Worker started, waiting for jobs...")
     while True:
         try:
-            # Bounded BLPOP: a truly infinite (timeout=0) blocking read has
-            # been observed dying with "Timeout reading from redis" every
-            # ~6s on Docker Desktop's Windows/WSL2 networking (it silently
-            # resets long-idle sockets). A None result here is expected and
-            # harmless - the loop just polls again.
-            result = await redis_client.blpop("llm_queue", timeout=30)
+            # Short-polling BLPOP: Docker Desktop's Windows/WSL2 network layer
+            # has been observed silently resetting idle container-to-container
+            # sockets after ~6s, which turns a long blocking read into a
+            # TimeoutError. socket_keepalive alone doesn't help here (its
+            # default first probe is ~2h, far too slow). Polling well under
+            # that window means BLPOP returns None (normal, not an exception)
+            # before the reset can happen - the loop just tries again.
+            result = await redis_client.blpop("llm_queue", timeout=4)
             if result:
                 _, data_json = result
                 job_data = json.loads(data_json)
