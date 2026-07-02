@@ -19,6 +19,28 @@ DB_PATH = os.getenv("DB_PATH", "bot_data.db")
 # twice as fast - the explicit /web command keeps working either way.
 AUTO_WEB_SEARCH = os.getenv("AUTO_WEB_SEARCH", "true").strip().lower() in ("1", "true", "yes", "on")
 
+# Stream replies: edit the telegram message progressively while the LLM is
+# still generating (ChatGPT-style). Purely cosmetic - turn off if your
+# telegram connection is rate-limited.
+STREAM_RESPONSES = os.getenv("STREAM_RESPONSES", "true").strip().lower() in ("1", "true", "yes", "on")
+
+# Access control: comma-separated telegram user IDs allowed to use the bot.
+# Empty = the bot answers everyone. Rejected users are shown their ID so the
+# owner can add them.
+def _parse_allowed_ids(raw: str) -> frozenset:
+    ids = set()
+    for part in raw.split(","):
+        part = part.strip()
+        if part.isdigit():
+            ids.add(int(part))
+    return frozenset(ids)
+
+ALLOWED_USER_IDS = _parse_allowed_ids(os.getenv("ALLOWED_USER_IDS", ""))
+
+# How many characters of an uploaded document are passed to the LLM. Local
+# models have small context windows (llama3: 8k tokens), so keep this modest.
+DOC_MAX_CHARS = int(os.getenv("DOC_MAX_CHARS", "12000"))
+
 TEXT_MODEL = os.getenv("TEXT_MODEL", "llama3")
 VISION_MODEL = os.getenv("VISION_MODEL", "llama3.2-vision")
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")

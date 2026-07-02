@@ -11,6 +11,21 @@ client = AsyncOpenAI(
     api_key=OLLAMA_API_KEY
 )
 
+async def _build_request(prompt, user_id, context_type, model_override, system_prompt):
+    """
+    Assemble the message list (last 5 history items from SQLite + optional
+    persona system prompt + current prompt) and pick the model.
+    `model_override` lets the caller use a user-selected model (see /model in
+    the bot) instead of the default TEXT_MODEL. Ignored for vision - photo
+    analysis always needs a multimodal model, so it always uses VISION_MODEL.
+    For vision, prompt is a list of content dicts (text + image_url).
+    """
+    history = await get_history(user_id, limit=5)
+    messages = ([{"role": "system", "content": system_prompt}] if system_prompt else []) + history
+    messages.append({"role": "user", "content": prompt})
+    model = VISION_MODEL if context_type == "vision" else (model_override or TEXT_MODEL)
+    return messages, model
+
 async def generate_response(
     prompt: str,
     user_id: int,
@@ -18,30 +33,8 @@ async def generate_response(
     model_override: str = None,
     system_prompt: str = None,
 ) -> str:
-    """
-    Generate response from the local LLM.
-    Fetches the last 5 conversation items from SQLite database as context.
-    `model_override` lets the caller use a user-selected model (see /model in
-    the bot) instead of the default TEXT_MODEL. Ignored for vision - photo
-    analysis always needs a multimodal model, so it always uses VISION_MODEL.
-    `system_prompt`, if given, is prepended as a system message (see /persona).
-    """
-    # LLM client retrieves the conversation history from SQLite database
-    history = await get_history(user_id, limit=5)
-    messages = ([{"role": "system", "content": system_prompt}] if system_prompt else []) + history
-
-    # Add the current prompt
-    if context_type == "text" or context_type == "voice" or context_type == "web_search":
-        messages.append({"role": "user", "content": prompt})
-        model = model_override or TEXT_MODEL
-    elif context_type == "vision":
-        # If it's vision, prompt is expected to be a list for the content with text and image_url
-        messages.append({"role": "user", "content": prompt})
-        model = VISION_MODEL
-    else:
-        messages.append({"role": "user", "content": prompt})
-        model = model_override or TEXT_MODEL
-
+    """Generate a complete response from the local LLM (non-streaming)."""
+    messages, model = await _build_request(prompt, user_id, context_type, model_override, system_prompt)
     try:
         response = await client.chat.completions.create(
             model=model,
@@ -52,6 +45,29 @@ async def generate_response(
     except Exception as e:
         logger.error(f"LLM Client error: {e}")
         return "I'm sorry, I couldn't process that request at the moment."
+
+async def stream_response(
+    prompt,
+    user_id: int,
+    context_type: str = "text",
+    model_override: str = None,
+    system_prompt: str = None,
+):
+    """
+    Async generator yielding response text deltas as the LLM produces them.
+    Unlike generate_response, errors propagate to the caller - the worker
+    turns them into a user-facing error message.
+    """
+    messages, model = await _build_request(prompt, user_id, context_type, model_override, system_prompt)
+    stream = await client.chat.completions.create(
+        model=model,
+        messages=messages,
+        temperature=0.7,
+        stream=True
+    )
+    async for chunk in stream:
+        if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
+            yield chunk.choices[0].delta.content
 
 async def should_search_web(prompt: str, model_override: str = None) -> bool:
     """

@@ -14,6 +14,8 @@ from task_queue.worker import process_queue
 from handlers.user_handlers import router as user_router
 from handlers.vision_handlers import router as vision_router
 from handlers.voice_handlers import router as voice_router
+from handlers.document_handlers import router as document_router
+from middlewares.access import AccessMiddleware
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -82,10 +84,15 @@ async def main():
     # Pass redis client to all handlers via workflow data
     dp["redis"] = redis_client
 
+    # Access control (no-op when ALLOWED_USER_IDS is empty)
+    dp.message.outer_middleware(AccessMiddleware())
+    dp.callback_query.outer_middleware(AccessMiddleware())
+
     # Include routers
     dp.include_router(user_router)
     dp.include_router(vision_router)
     dp.include_router(voice_router)
+    dp.include_router(document_router)
 
     # 5. Start Background Worker for LLM tasks
     worker_task = asyncio.create_task(process_queue(bot, redis_client))

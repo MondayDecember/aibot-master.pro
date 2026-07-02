@@ -12,9 +12,9 @@ router = Router()
 @router.message(CommandStart())
 async def cmd_start(message: Message):
     await message.answer(
-        "Hello! I am your AI assistant. Send me text, voice messages, or photos, "
-        "use /web <query> to search the web, /model to switch the text model, "
-        "or /persona to change my personality."
+        "Hello! I am your AI assistant. Send me text, voice messages, photos, "
+        "or documents (PDF / plain text), use /web <query> to search the web, "
+        "/model to switch the text model, or /persona to change my personality."
     )
 
 @router.message(Command("clear"))

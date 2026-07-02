@@ -6,3 +6,4 @@ duckduckgo-search>=5.2.1
 python-dotenv>=1.0.1
 faster-whisper>=1.0.1
 Pillow>=10.2.0
+pypdf>=4.0.0

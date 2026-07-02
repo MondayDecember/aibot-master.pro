@@ -1,15 +1,20 @@
 import asyncio
 import json
 import logging
+import time
 from aiogram import Bot
-from config import PERSONAS, AUTO_WEB_SEARCH
-from utils.llm_client import generate_response, should_search_web
+from aiogram.utils.chat_action import ChatActionSender
+from config import PERSONAS, AUTO_WEB_SEARCH, STREAM_RESPONSES
+from utils.llm_client import generate_response, stream_response, should_search_web
 from utils.web_search import perform_web_search
 from db.database import get_history, add_message, get_user_model, get_user_persona
 
 logger = logging.getLogger(__name__)
 
 TELEGRAM_MESSAGE_LIMIT = 4096
+# Minimum seconds between streaming edits of the same message - telegram
+# throttles frequent edits, ~1/sec per chat is the safe zone.
+STREAM_EDIT_INTERVAL = 1.5
 
 def _split_message(text: str, limit: int = TELEGRAM_MESSAGE_LIMIT) -> list[str]:
     """Split text into telegram-sized chunks, preferring newline boundaries."""
@@ -23,15 +28,18 @@ def _split_message(text: str, limit: int = TELEGRAM_MESSAGE_LIMIT) -> list[str]:
     chunks.append(text)
     return chunks
 
-async def _edit_status(bot: Bot, chat_id: int, message_id: int, text: str):
-    """Best-effort status update - a failed edit (e.g. the user deleted the
-    placeholder message) must not kill the whole job."""
+async def _try_edit(bot: Bot, chat_id: int, message_id: int, text: str, parse_mode: str = None):
+    """Best-effort message edit - a failed edit (e.g. the user deleted the
+    placeholder message, or telegram throttled us) must not kill the job."""
     try:
         await bot.edit_message_text(
-            chat_id=chat_id, message_id=message_id, text=text, parse_mode="HTML"
+            chat_id=chat_id, message_id=message_id, text=text, parse_mode=parse_mode
         )
     except Exception as e:
-        logger.warning(f"Status edit failed: {e}")
+        logger.warning(f"Message edit failed: {e}")
+
+async def _edit_status(bot: Bot, chat_id: int, message_id: int, text: str):
+    await _try_edit(bot, chat_id, message_id, text, parse_mode="HTML")
 
 async def process_queue(bot: Bot, redis_client):
     """Background worker to process LLM requests from Redis queue."""
@@ -77,10 +85,31 @@ async def process_queue(bot: Bot, redis_client):
                     if bot_message_id:
                         await _edit_status(bot, chat_id, bot_message_id, "<i>Generating response...</i>")
 
-                    response_text = await generate_response(
-                        final_prompt, user_id, final_context_type,
-                        model_override=user_model, system_prompt=system_prompt
-                    )
+                    # Show "typing..." in telegram for the whole generation;
+                    # with streaming on, also grow the placeholder message as
+                    # tokens arrive (the trailing ▌ marks an unfinished reply
+                    # and guarantees the final edit differs from the last
+                    # streamed preview).
+                    async with ChatActionSender.typing(bot=bot, chat_id=chat_id):
+                        if STREAM_RESPONSES and bot_message_id:
+                            response_text = ""
+                            last_edit = time.monotonic()
+                            async for delta in stream_response(
+                                final_prompt, user_id, final_context_type,
+                                model_override=user_model, system_prompt=system_prompt
+                            ):
+                                response_text += delta
+                                now = time.monotonic()
+                                if (now - last_edit >= STREAM_EDIT_INTERVAL
+                                        and response_text.strip()
+                                        and len(response_text) < TELEGRAM_MESSAGE_LIMIT - 2):
+                                    await _try_edit(bot, chat_id, bot_message_id, response_text + " ▌")
+                                    last_edit = now
+                        else:
+                            response_text = await generate_response(
+                                final_prompt, user_id, final_context_type,
+                                model_override=user_model, system_prompt=system_prompt
+                            )
 
                     # Persist the turn now, after history was fetched for generation,
                     # so the current message isn't duplicated into its own context.
