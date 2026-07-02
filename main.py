@@ -69,6 +69,7 @@ async def heartbeat_loop():
 async def setup_commands(bot: Bot):
     """Register the command menu shown by the '/' button in telegram."""
     await bot.set_my_commands([
+        BotCommand(command="menu", description=t("desc_menu")),
         BotCommand(command="help", description=t("desc_help")),
         BotCommand(command="clear", description=t("desc_clear")),
         BotCommand(command="web", description=t("desc_web")),

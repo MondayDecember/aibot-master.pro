@@ -9,8 +9,9 @@ _TEXTS = {
     "en": {
         "start": (
             "Hello! I am your AI assistant. Send me text, voice messages, photos, "
-            "or documents (PDF / plain text), use /web <query> to search the web, "
-            "/model to switch the text model, or /persona to change my personality."
+            "or documents (PDF / plain text), use /web &lt;query&gt; to search the web, "
+            "/model to switch the text model, /persona to change my personality, "
+            "or /menu to see all of that in one place."
         ),
         "cleared": "Conversation history cleared!",
         "current_model": "Current text model: <code>{model}</code>\nPick one:",
@@ -86,12 +87,20 @@ _TEXTS = {
         "desc_model": "Switch the text model",
         "desc_persona": "Change the bot's personality",
         "desc_stats": "Bot statistics (admin)",
+        "desc_menu": "Open the menu",
+        "menu_title": "📋 <b>Menu</b>\nWhat would you like to do?",
+        "menu_model": "🤖 Switch model",
+        "menu_persona": "🎭 Switch persona",
+        "menu_clear": "🧹 Clear history",
+        "menu_help": "❓ Help",
+        "back": "◀ Back",
     },
     "ru": {
         "start": (
             "Привет! Я ваш ИИ-ассистент. Отправьте мне текст, голосовое сообщение, "
-            "фото или документ (PDF / текстовый файл). Команды: /web <запрос> — поиск "
-            "в интернете, /model — сменить модель, /persona — сменить характер бота."
+            "фото или документ (PDF / текстовый файл). Команды: /web &lt;запрос&gt; — поиск "
+            "в интернете, /model — сменить модель, /persona — сменить характер бота, "
+            "/menu — открыть всё это одним меню."
         ),
         "cleared": "История диалога очищена!",
         "current_model": "Текущая модель: <code>{model}</code>\nВыберите:",
@@ -167,6 +176,13 @@ _TEXTS = {
         "desc_model": "Сменить модель",
         "desc_persona": "Сменить характер бота",
         "desc_stats": "Статистика (админ)",
+        "desc_menu": "Открыть меню",
+        "menu_title": "📋 <b>Меню</b>\nЧто сделать?",
+        "menu_model": "🤖 Сменить модель",
+        "menu_persona": "🎭 Сменить персонажа",
+        "menu_clear": "🧹 Очистить историю",
+        "menu_help": "❓ Помощь",
+        "back": "◀ Назад",
     },
 }
 

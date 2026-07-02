@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import CommandStart, Command, CommandObject
@@ -59,9 +60,19 @@ def _auto_key(model_name: str) -> str:
     blow Telegram's 64-byte callback_data limit if used directly."""
     return "auto" + hashlib.sha1(model_name.encode()).hexdigest()[:8]
 
+_QUANT_SUFFIX_RE = re.compile(r":(?:[Qq]\d[\w.]*|latest|[Ff]16|[Ff]32)$")
+
 def _short_label(model_name: str) -> str:
-    label = model_name.rsplit("/", 1)[-1]  # drop any "hf.co/org/" prefix
+    """Readable button label for a model that has no MODEL_CHOICES alias:
+    drop the 'hf.co/org/' prefix and the ':Q4_K_M'-style quantization tag,
+    turn dashes/underscores into spaces."""
+    label = model_name.rsplit("/", 1)[-1]
+    label = _QUANT_SUFFIX_RE.sub("", label)
+    label = label.replace("-", " ").replace("_", " ")
     return label if len(label) <= 40 else label[:37] + "…"
+
+def _back_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=t("back"), callback_data="nav:main")]])
 
 async def _build_model_choices() -> dict:
     """AVAILABLE_MODELS (friendly keys from MODEL_CHOICES in .env) plus every
@@ -84,6 +95,7 @@ def _model_keyboard(current: str, choices: dict) -> InlineKeyboardMarkup:
         )]
         for key, model_name in choices.items()
     ]
+    buttons.append([InlineKeyboardButton(text=t("back"), callback_data="nav:main")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 @router.message(Command("model"))
@@ -121,6 +133,7 @@ def _persona_keyboard(current_key: str) -> InlineKeyboardMarkup:
         )]
         for key in PERSONAS
     ]
+    buttons.append([InlineKeyboardButton(text=t("back"), callback_data="nav:main")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 @router.message(Command("persona"))
@@ -146,6 +159,59 @@ async def cb_persona(callback: CallbackQuery):
         reply_markup=_persona_keyboard(key)
     )
     await callback.answer(t("switched_to", key=key))
+
+def _main_menu_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=t("menu_model"), callback_data="nav:model")],
+        [InlineKeyboardButton(text=t("menu_persona"), callback_data="nav:persona")],
+        [InlineKeyboardButton(text=t("menu_clear"), callback_data="nav:clear")],
+        [InlineKeyboardButton(text=t("menu_help"), callback_data="nav:help")],
+    ])
+
+@router.message(Command("menu"))
+async def cmd_menu(message: Message):
+    await message.answer(t("menu_title"), parse_mode="HTML", reply_markup=_main_menu_keyboard())
+
+@router.callback_query(F.data == "nav:main")
+async def cb_nav_main(callback: CallbackQuery):
+    await callback.message.edit_text(t("menu_title"), parse_mode="HTML", reply_markup=_main_menu_keyboard())
+    await callback.answer()
+
+@router.callback_query(F.data == "nav:model")
+async def cb_nav_model(callback: CallbackQuery):
+    current = await get_user_model(callback.from_user.id) or TEXT_MODEL
+    choices = await _build_model_choices()
+    await callback.message.edit_text(
+        t("current_model", model=current),
+        parse_mode="HTML",
+        reply_markup=_model_keyboard(current, choices)
+    )
+    await callback.answer()
+
+@router.callback_query(F.data == "nav:persona")
+async def cb_nav_persona(callback: CallbackQuery):
+    current = await get_user_persona(callback.from_user.id) or "default"
+    await callback.message.edit_text(
+        t("current_persona", persona=current),
+        parse_mode="HTML",
+        reply_markup=_persona_keyboard(current)
+    )
+    await callback.answer()
+
+@router.callback_query(F.data == "nav:clear")
+async def cb_nav_clear(callback: CallbackQuery):
+    # Don't reuse history_key(callback.message) - that message was sent by
+    # the bot, so its from_user is the bot itself, not the person who
+    # clicked the button.
+    key = callback.from_user.id if callback.message.chat.type == "private" else callback.message.chat.id
+    await clear_history(key)
+    await callback.message.edit_text(t("cleared"), reply_markup=_back_keyboard())
+    await callback.answer()
+
+@router.callback_query(F.data == "nav:help")
+async def cb_nav_help(callback: CallbackQuery):
+    await callback.message.edit_text(t("help"), parse_mode="HTML", reply_markup=_back_keyboard())
+    await callback.answer()
 
 @router.message(Command("web"))
 async def cmd_web(message: Message, command: CommandObject, redis):

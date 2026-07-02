@@ -108,7 +108,14 @@ async def should_search_web(prompt: str, model_override: str = None) -> bool:
                 {"role": "user", "content": prompt}
             ],
             temperature=0,
-            max_tokens=3
+            # Reasoning models (Qwen3.5, DeepSeek-R1-style, etc.) put their
+            # chain-of-thought in a separate `reasoning` field and only write
+            # the final YES/NO into `content` afterwards - max_tokens=3 cut
+            # them off mid-thought, so should_search_web always saw an empty
+            # content and returned False, no matter the question. Non-reasoning
+            # models still stop right after "YES"/"NO" on their own, so this
+            # ceiling doesn't add latency for them.
+            max_tokens=500
         )
         answer = (response.choices[0].message.content or "").strip().upper()
         return answer.startswith("YES")
