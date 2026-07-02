@@ -4,6 +4,8 @@ import json
 import os
 import re
 from aiogram import Router, F
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import CommandStart, Command, CommandObject
 from config import AVAILABLE_MODELS, TEXT_MODEL, PERSONAS, ADMIN_USER_ID, DB_PATH
@@ -15,6 +17,9 @@ from utils.texts import t
 from utils.web_search import perform_web_search
 
 router = Router()
+
+class MenuStates(StatesGroup):
+    waiting_web_query = State()
 
 @router.message(CommandStart())
 async def cmd_start(message: Message):
@@ -30,29 +35,29 @@ async def cmd_clear(message: Message):
     await clear_history(history_key(message))
     await message.answer(t("cleared"))
 
-@router.message(Command("stats"))
-async def cmd_stats(message: Message, redis):
-    """Owner-only bot statistics (admin = ADMIN_USER_ID or the first allowed ID)."""
-    if not ADMIN_USER_ID or message.from_user.id != ADMIN_USER_ID:
-        await message.answer(t("stats_admin_only"))
-        return
+async def _stats_text(redis) -> str:
     stats = await get_stats()
     queue_len = await redis.llen("llm_queue")
     try:
         db_size = os.path.getsize(DB_PATH)
     except OSError:
         db_size = 0
-    await message.answer(
-        t(
-            "stats",
-            users=stats["users"],
-            messages=stats["messages"],
-            today=stats["today"],
-            queue=queue_len,
-            db_size=f"{db_size / 1024 / 1024:.2f} MB",
-        ),
-        parse_mode="HTML",
+    return t(
+        "stats",
+        users=stats["users"],
+        messages=stats["messages"],
+        today=stats["today"],
+        queue=queue_len,
+        db_size=f"{db_size / 1024 / 1024:.2f} MB",
     )
+
+@router.message(Command("stats"))
+async def cmd_stats(message: Message, redis):
+    """Owner-only bot statistics (admin = ADMIN_USER_ID or the first allowed ID)."""
+    if not ADMIN_USER_ID or message.from_user.id != ADMIN_USER_ID:
+        await message.answer(t("stats_admin_only"))
+        return
+    await message.answer(await _stats_text(redis), parse_mode="HTML")
 
 def _auto_key(model_name: str) -> str:
     """Stable short key for a model discovered via Ollama (not one of the
@@ -90,7 +95,7 @@ def _model_keyboard(current: str, choices: dict) -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton(
             text=("✅ " if model_name == current else "")
-                 + (key if not key.startswith("auto") else _short_label(model_name)),
+                 + (_short_label(model_name) if key.startswith("auto") else f"{key}: {_short_label(model_name)}"),
             callback_data=f"model:{key}"
         )]
         for key, model_name in choices.items()
@@ -125,10 +130,15 @@ async def cb_model(callback: CallbackQuery):
     )
     await callback.answer(t("switched_to", key=key))
 
+def _persona_label(key: str) -> str:
+    """Translated display name for a persona - add a matching persona_<key>
+    entry to utils/texts.py whenever a new persona is added to PERSONAS."""
+    return t(f"persona_{key}")
+
 def _persona_keyboard(current_key: str) -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton(
-            text=("✅ " if key == current_key else "") + key,
+            text=("✅ " if key == current_key else "") + _persona_label(key),
             callback_data=f"persona:{key}"
         )]
         for key in PERSONAS
@@ -141,7 +151,7 @@ async def cmd_persona(message: Message):
     """Show current persona and let the user switch it. Applies to every reply, including photo descriptions."""
     current = await get_user_persona(message.from_user.id) or "default"
     await message.answer(
-        t("current_persona", persona=current),
+        t("current_persona", persona=_persona_label(current)),
         parse_mode="HTML",
         reply_markup=_persona_keyboard(current)
     )
@@ -154,26 +164,32 @@ async def cb_persona(callback: CallbackQuery):
         return
     await set_user_persona(callback.from_user.id, key)
     await callback.message.edit_text(
-        t("persona_switched", persona=key),
+        t("persona_switched", persona=_persona_label(key)),
         parse_mode="HTML",
         reply_markup=_persona_keyboard(key)
     )
-    await callback.answer(t("switched_to", key=key))
+    await callback.answer(t("switched_to", key=_persona_label(key)))
 
 def _main_menu_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
+    buttons = [
         [InlineKeyboardButton(text=t("menu_model"), callback_data="nav:model")],
         [InlineKeyboardButton(text=t("menu_persona"), callback_data="nav:persona")],
+        [InlineKeyboardButton(text=t("menu_web"), callback_data="nav:web")],
         [InlineKeyboardButton(text=t("menu_clear"), callback_data="nav:clear")],
         [InlineKeyboardButton(text=t("menu_help"), callback_data="nav:help")],
-    ])
+    ]
+    if ADMIN_USER_ID:
+        buttons.append([InlineKeyboardButton(text=t("menu_stats"), callback_data="nav:stats")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 @router.message(Command("menu"))
-async def cmd_menu(message: Message):
+async def cmd_menu(message: Message, state: FSMContext):
+    await state.clear()
     await message.answer(t("menu_title"), parse_mode="HTML", reply_markup=_main_menu_keyboard())
 
 @router.callback_query(F.data == "nav:main")
-async def cb_nav_main(callback: CallbackQuery):
+async def cb_nav_main(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
     await callback.message.edit_text(t("menu_title"), parse_mode="HTML", reply_markup=_main_menu_keyboard())
     await callback.answer()
 
@@ -192,7 +208,7 @@ async def cb_nav_model(callback: CallbackQuery):
 async def cb_nav_persona(callback: CallbackQuery):
     current = await get_user_persona(callback.from_user.id) or "default"
     await callback.message.edit_text(
-        t("current_persona", persona=current),
+        t("current_persona", persona=_persona_label(current)),
         parse_mode="HTML",
         reply_markup=_persona_keyboard(current)
     )
@@ -213,15 +229,23 @@ async def cb_nav_help(callback: CallbackQuery):
     await callback.message.edit_text(t("help"), parse_mode="HTML", reply_markup=_back_keyboard())
     await callback.answer()
 
-@router.message(Command("web"))
-async def cmd_web(message: Message, command: CommandObject, redis):
-    """Handler for explicit web search."""
-    # CommandObject handles /web@botname and doesn't touch "/web" inside the query
-    query = (command.args or "").strip()
-    if not query:
-        await message.answer(t("web_usage"))
+@router.callback_query(F.data == "nav:stats")
+async def cb_nav_stats(callback: CallbackQuery, redis):
+    if not ADMIN_USER_ID or callback.from_user.id != ADMIN_USER_ID:
+        await callback.answer(t("stats_admin_only"), show_alert=True)
         return
+    await callback.message.edit_text(
+        await _stats_text(redis), parse_mode="HTML", reply_markup=_back_keyboard()
+    )
+    await callback.answer()
 
+@router.callback_query(F.data == "nav:web")
+async def cb_nav_web(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(MenuStates.waiting_web_query)
+    await callback.message.edit_text(t("web_prompt"), reply_markup=_back_keyboard())
+    await callback.answer()
+
+async def _run_web_search(message: Message, redis, query: str):
     bot_message = await message.answer(t("searching"), parse_mode="HTML")
 
     # Run the blocking DDGS network call in a thread so it doesn't stall the event loop
@@ -237,8 +261,29 @@ async def cmd_web(message: Message, command: CommandObject, redis):
         history_id=history_key(message),
     )
 
+@router.message(Command("web"))
+async def cmd_web(message: Message, command: CommandObject, redis):
+    """Handler for explicit web search."""
+    # CommandObject handles /web@botname and doesn't touch "/web" inside the query
+    query = (command.args or "").strip()
+    if not query:
+        await message.answer(t("web_usage"))
+        return
+    await _run_web_search(message, redis, query)
+
 @router.message(F.text)
-async def handle_text(message: Message, redis):
+async def handle_text(message: Message, redis, state: FSMContext):
+    # Waiting for a search query typed after tapping "Search the web" in
+    # /menu - treat this message as that query instead of normal chat.
+    if await state.get_state() == MenuStates.waiting_web_query.state:
+        await state.clear()
+        query = message.text.strip()
+        if not query:
+            await message.answer(t("web_usage"))
+            return
+        await _run_web_search(message, redis, query)
+        return
+
     is_group = message.chat.type != "private"
     # In groups: react only to @mentions or replies to the bot
     should_handle, text = await gate_group_message(message, message.text)

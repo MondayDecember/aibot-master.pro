@@ -93,7 +93,15 @@ _TEXTS = {
         "menu_persona": "🎭 Switch persona",
         "menu_clear": "🧹 Clear history",
         "menu_help": "❓ Help",
+        "menu_stats": "📊 Stats",
+        "menu_web": "🔍 Search the web",
         "back": "◀ Back",
+        "persona_default": "Default",
+        "persona_pirate": "Pirate",
+        "persona_yoda": "Yoda",
+        "persona_sarcastic": "Sarcastic",
+        "persona_scientist": "Scientist",
+        "web_prompt": "What should I search for? Send it as your next message.",
     },
     "ru": {
         "start": (
@@ -182,7 +190,15 @@ _TEXTS = {
         "menu_persona": "🎭 Сменить персонажа",
         "menu_clear": "🧹 Очистить историю",
         "menu_help": "❓ Помощь",
+        "menu_stats": "📊 Статистика",
+        "menu_web": "🔍 Поиск в интернете",
         "back": "◀ Назад",
+        "persona_default": "Обычный",
+        "persona_pirate": "Пират",
+        "persona_yoda": "Йода",
+        "persona_sarcastic": "Саркастичный",
+        "persona_scientist": "Учёный",
+        "web_prompt": "Что искать? Напишите запрос следующим сообщением.",
     },
 }
 
