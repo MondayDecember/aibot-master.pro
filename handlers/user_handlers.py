@@ -2,7 +2,7 @@ import asyncio
 import json
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.filters import CommandStart, Command
+from aiogram.filters import CommandStart, Command, CommandObject
 from config import AVAILABLE_MODELS, TEXT_MODEL, PERSONAS
 from db.database import clear_history, get_user_model, set_user_model, get_user_persona, set_user_persona
 from utils.web_search import perform_web_search
@@ -92,9 +92,10 @@ async def cb_persona(callback: CallbackQuery):
     await callback.answer(f"Switched to {key}")
 
 @router.message(Command("web"))
-async def cmd_web(message: Message, redis):
+async def cmd_web(message: Message, command: CommandObject, redis):
     """Handler for explicit web search."""
-    query = message.text.replace("/web", "").strip()
+    # CommandObject handles /web@botname and doesn't touch "/web" inside the query
+    query = (command.args or "").strip()
     if not query:
         await message.answer("Please provide a search query. Example: /web current weather in London")
         return

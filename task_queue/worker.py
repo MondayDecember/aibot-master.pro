@@ -9,6 +9,30 @@ from db.database import get_history, add_message, get_user_model, get_user_perso
 
 logger = logging.getLogger(__name__)
 
+TELEGRAM_MESSAGE_LIMIT = 4096
+
+def _split_message(text: str, limit: int = TELEGRAM_MESSAGE_LIMIT) -> list[str]:
+    """Split text into telegram-sized chunks, preferring newline boundaries."""
+    chunks = []
+    while len(text) > limit:
+        cut = text.rfind("\n", limit // 2, limit)
+        if cut == -1:
+            cut = limit
+        chunks.append(text[:cut])
+        text = text[cut:].lstrip("\n")
+    chunks.append(text)
+    return chunks
+
+async def _edit_status(bot: Bot, chat_id: int, message_id: int, text: str):
+    """Best-effort status update - a failed edit (e.g. the user deleted the
+    placeholder message) must not kill the whole job."""
+    try:
+        await bot.edit_message_text(
+            chat_id=chat_id, message_id=message_id, text=text, parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.warning(f"Status edit failed: {e}")
+
 async def process_queue(bot: Bot, redis_client):
     """Background worker to process LLM requests from Redis queue."""
     logger.info("Worker started, waiting for jobs...")
@@ -40,12 +64,7 @@ async def process_queue(bot: Bot, redis_client):
                     if context_type in ("text", "voice") and isinstance(prompt, str):
                         if await should_search_web(prompt, model_override=user_model):
                             if bot_message_id:
-                                await bot.edit_message_text(
-                                    chat_id=chat_id,
-                                    message_id=bot_message_id,
-                                    text="<i>Searching the web...</i>",
-                                    parse_mode="HTML"
-                                )
+                                await _edit_status(bot, chat_id, bot_message_id, "<i>Searching the web...</i>")
                             search_results = await asyncio.to_thread(perform_web_search, prompt)
                             final_prompt = (
                                 f"User asked: {prompt}\n\n"
@@ -56,12 +75,7 @@ async def process_queue(bot: Bot, redis_client):
 
                     # Update status
                     if bot_message_id:
-                        await bot.edit_message_text(
-                            chat_id=chat_id,
-                            message_id=bot_message_id,
-                            text="<i>Generating response...</i>",
-                            parse_mode="HTML"
-                        )
+                        await _edit_status(bot, chat_id, bot_message_id, "<i>Generating response...</i>")
 
                     response_text = await generate_response(
                         final_prompt, user_id, final_context_type,
@@ -74,22 +88,31 @@ async def process_queue(bot: Bot, redis_client):
                     await add_message(user_id, "user", history_content)
                     await add_message(user_id, "assistant", response_text)
                     
-                    # Edit telegram message with final response
+                    # Edit telegram message with final response. Plain text on
+                    # purpose: the bot's default parse_mode is HTML, and LLM
+                    # output with < > & (code, math) would fail to parse.
+                    # Telegram also caps messages at 4096 chars, so split.
+                    chunks = _split_message(
+                        (response_text or "").strip() or "The model returned an empty response."
+                    )
                     if bot_message_id:
                         await bot.edit_message_text(
-                            chat_id=chat_id, 
-                            message_id=bot_message_id, 
-                            text=response_text
+                            chat_id=chat_id,
+                            message_id=bot_message_id,
+                            text=chunks[0],
+                            parse_mode=None
                         )
+                        for chunk in chunks[1:]:
+                            await bot.send_message(chat_id, chunk, parse_mode=None)
                     else:
-                        await bot.send_message(chat_id, response_text)
+                        for chunk in chunks:
+                            await bot.send_message(chat_id, chunk, parse_mode=None)
                 except Exception as e:
                     logger.error(f"Error generating response: {e}")
                     if bot_message_id:
-                        await bot.edit_message_text(
-                            chat_id=chat_id, 
-                            message_id=bot_message_id, 
-                            text="Sorry, I encountered an error processing your request."
+                        await _edit_status(
+                            bot, chat_id, bot_message_id,
+                            "Sorry, I encountered an error processing your request."
                         )
                     
         except asyncio.CancelledError:

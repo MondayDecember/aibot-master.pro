@@ -33,6 +33,11 @@ async def init_db():
             await db.execute("ALTER TABLE user_settings ADD COLUMN persona TEXT")
         except aiosqlite.OperationalError:
             pass
+        # get_history filters by user_id on every message - without an index
+        # that's a full table scan that keeps growing with the history.
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_history_user ON history(user_id, id)"
+        )
         await db.commit()
         logger.info("Database initialized.")
 

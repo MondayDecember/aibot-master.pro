@@ -1,3 +1,4 @@
+import html
 import json
 from aiogram import Router, F
 from aiogram.types import Message
@@ -16,7 +17,10 @@ async def handle_voice(message: Message, redis):
         return
         
     # Let the user know we heard them
-    await bot_message.edit_text(f"<i>Heard:</i> {transcription}\n\n<i>Thinking...</i>", parse_mode="HTML")
+    # Escape: the transcription goes into an HTML-parsed message
+    await bot_message.edit_text(
+        f"<i>Heard:</i> {html.escape(transcription)}\n\n<i>Thinking...</i>", parse_mode="HTML"
+    )
     
     # Queue job for LLM (user message is persisted by the worker, after it fetches history)
     job_data = {
