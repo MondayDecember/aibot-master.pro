@@ -3,7 +3,6 @@ import logging
 import os
 import tempfile
 import time
-import aiohttp
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
@@ -11,6 +10,7 @@ from aiogram.types import BotCommand
 from redis.asyncio import Redis
 
 from utils.texts import t
+from utils.ollama import list_installed_models
 
 from config import BOT_TOKEN, REDIS_URL, OLLAMA_API_BASE, TEXT_MODEL, VISION_MODEL, AVAILABLE_MODELS
 from db.database import init_db
@@ -33,26 +33,16 @@ async def check_ollama():
     user sees an actionable message in the logs instead of a traceback on the
     first request. Non-fatal: Ollama may simply not be up yet.
     """
-    # OLLAMA_API_BASE points to the OpenAI-compatible endpoint (".../v1"),
-    # the native API with /api/tags lives one level up.
-    base = OLLAMA_API_BASE.rstrip("/")
-    if base.endswith("/v1"):
-        base = base[:-3].rstrip("/")
-    try:
-        timeout = aiohttp.ClientTimeout(total=5)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(f"{base}/api/tags") as resp:
-                data = await resp.json()
-    except Exception as e:
+    names = await list_installed_models()
+    if not names:
         logger.warning(
-            f"Ollama is not reachable at {OLLAMA_API_BASE} ({e}). "
-            "The bot will start, but it can't reply until Ollama is up. "
-            "Check OLLAMA_API_BASE in .env."
+            f"Ollama is not reachable at {OLLAMA_API_BASE}, or it has no models "
+            "installed. The bot will start, but it can't reply until Ollama is "
+            "up and has at least one model pulled."
         )
         return
     installed = set()
-    for m in data.get("models", []):
-        name = m.get("name", "")
+    for name in names:
         installed.add(name)
         installed.add(name.split(":")[0])
     required = {TEXT_MODEL, VISION_MODEL} | set(AVAILABLE_MODELS.values())

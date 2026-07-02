@@ -107,9 +107,29 @@ def _parse_model_choices(raw: str) -> dict:
 
 AVAILABLE_MODELS = _parse_model_choices(os.getenv("MODEL_CHOICES", "")) or {"default": TEXT_MODEL}
 
-# Personas selectable in Telegram via /persona - a system prompt prepended to every
-# request (text, voice, web search, and photo descriptions). "default" = no persona,
-# stock assistant behaviour.
+# Always-on formatting/style instruction, regardless of persona. Without it,
+# local models default to writing Markdown-heavy "wiki article" answers
+# (headers, tables, horizontal rules) - Telegram messages are sent as plain
+# text, so that markup just shows up as literal #, ---, |, ** clutter instead
+# of being rendered.
+BASE_SYSTEM_PROMPT = (
+    "You are chatting with the user in a Telegram messenger conversation, not "
+    "writing a document. Reply in plain, natural conversational sentences. "
+    "Do not use Markdown headers (#, ##), horizontal rules (---), tables "
+    "(pipes |), or blockquotes (>) - Telegram shows them as literal symbols, "
+    "not formatting. Keep answers as short as the question deserves; don't "
+    "pad a simple question into a long structured essay with many sections. "
+    "Always reply in the same language the user writes in."
+)
+
+def build_system_prompt(persona_key: str) -> str:
+    """Combine the base formatting/style instruction with the chosen persona's flavor text."""
+    flavor = PERSONAS.get(persona_key)
+    return f"{BASE_SYSTEM_PROMPT} {flavor}" if flavor else BASE_SYSTEM_PROMPT
+
+# Personas selectable in Telegram via /persona - flavor text added on top of
+# BASE_SYSTEM_PROMPT for every request (text, voice, web search, and photo
+# descriptions). "default" = no extra flavor, just the base style above.
 PERSONAS = {
     "default": None,
     "pirate": (

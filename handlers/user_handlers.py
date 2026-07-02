@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import os
 from aiogram import Router, F
@@ -8,6 +9,7 @@ from config import AVAILABLE_MODELS, TEXT_MODEL, PERSONAS, ADMIN_USER_ID, DB_PAT
 from db.database import add_message, clear_history, get_user_model, set_user_model, get_user_persona, set_user_persona, get_stats
 from task_queue.enqueue import enqueue_llm_job
 from utils.group import gate_group_message, history_key, should_chime_in, CHATTER_PROMPT
+from utils.ollama import list_installed_models
 from utils.texts import t
 from utils.web_search import perform_web_search
 
@@ -51,13 +53,36 @@ async def cmd_stats(message: Message, redis):
         parse_mode="HTML",
     )
 
-def _model_keyboard(current: str) -> InlineKeyboardMarkup:
+def _auto_key(model_name: str) -> str:
+    """Stable short key for a model discovered via Ollama (not one of the
+    friendly MODEL_CHOICES aliases) - long HuggingFace-style names would
+    blow Telegram's 64-byte callback_data limit if used directly."""
+    return "auto" + hashlib.sha1(model_name.encode()).hexdigest()[:8]
+
+def _short_label(model_name: str) -> str:
+    label = model_name.rsplit("/", 1)[-1]  # drop any "hf.co/org/" prefix
+    return label if len(label) <= 40 else label[:37] + "…"
+
+async def _build_model_choices() -> dict:
+    """AVAILABLE_MODELS (friendly keys from MODEL_CHOICES in .env) plus every
+    model actually installed in Ollama that isn't already one of those
+    values - so a freshly `ollama pull`-ed model shows up in /model right
+    away, without editing .env and restarting the bot."""
+    choices = dict(AVAILABLE_MODELS)
+    known = set(choices.values())
+    for name in await list_installed_models():
+        if name not in known:
+            choices[_auto_key(name)] = name
+    return choices
+
+def _model_keyboard(current: str, choices: dict) -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton(
-            text=("✅ " if model_name == current else "") + key,
+            text=("✅ " if model_name == current else "")
+                 + (key if not key.startswith("auto") else _short_label(model_name)),
             callback_data=f"model:{key}"
         )]
-        for key, model_name in AVAILABLE_MODELS.items()
+        for key, model_name in choices.items()
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -65,16 +90,18 @@ def _model_keyboard(current: str) -> InlineKeyboardMarkup:
 async def cmd_model(message: Message):
     """Show current text model and let the user switch it (photo analysis is unaffected - it always uses VISION_MODEL)."""
     current = await get_user_model(message.from_user.id) or TEXT_MODEL
+    choices = await _build_model_choices()
     await message.answer(
         t("current_model", model=current),
         parse_mode="HTML",
-        reply_markup=_model_keyboard(current)
+        reply_markup=_model_keyboard(current, choices)
     )
 
 @router.callback_query(F.data.startswith("model:"))
 async def cb_model(callback: CallbackQuery):
     key = callback.data.split(":", 1)[1]
-    model_name = AVAILABLE_MODELS.get(key)
+    choices = await _build_model_choices()
+    model_name = choices.get(key)
     if not model_name:
         await callback.answer(t("unknown_model"), show_alert=True)
         return
@@ -82,7 +109,7 @@ async def cb_model(callback: CallbackQuery):
     await callback.message.edit_text(
         t("model_switched", model=model_name),
         parse_mode="HTML",
-        reply_markup=_model_keyboard(model_name)
+        reply_markup=_model_keyboard(model_name, choices)
     )
     await callback.answer(t("switched_to", key=key))
 
