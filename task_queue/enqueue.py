@@ -14,8 +14,10 @@ async def _over_rate_limit(redis, user_id: int) -> bool:
         return False
     key = f"rate:{user_id}"
     count = await redis.incr(key)
-    if count == 1:
-        # first request of the window starts the 60s clock
+    # First request of the window starts the 60s clock. Also self-heal: if a
+    # previous expire call was lost (redis hiccup), the key would otherwise
+    # live forever and lock the user out permanently.
+    if count == 1 or await redis.ttl(key) < 0:
         await redis.expire(key, 60)
     return count > RATE_LIMIT_PER_MINUTE
 

@@ -146,12 +146,18 @@ async def process_queue(bot: Bot, redis_client):
                         (response_text or "").strip() or t("empty_response")
                     )
                     if bot_message_id:
-                        await bot.edit_message_text(
-                            chat_id=chat_id,
-                            message_id=bot_message_id,
-                            text=chunks[0],
-                            parse_mode=None
-                        )
+                        try:
+                            await bot.edit_message_text(
+                                chat_id=chat_id,
+                                message_id=bot_message_id,
+                                text=chunks[0],
+                                parse_mode=None
+                            )
+                        except Exception as edit_error:
+                            # Placeholder gone (user deleted it)? Don't lose
+                            # the generated reply - send it as a new message.
+                            logger.warning(f"Final edit failed, sending anew: {edit_error}")
+                            await bot.send_message(chat_id, chunks[0], parse_mode=None)
                         for chunk in chunks[1:]:
                             await bot.send_message(chat_id, chunk, parse_mode=None)
                     else:

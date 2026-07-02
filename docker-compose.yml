@@ -14,6 +14,9 @@ services:
     volumes:
       # Persist the sqlite database on the host machine
       - ./data:/app/data
+      # Keep downloaded whisper models across container updates - otherwise
+      # every auto-update re-downloads them
+      - whisper_cache:/home/appuser/.cache
     restart: unless-stopped
     # The bot touches /tmp/aibot_healthy every 30s; if it goes stale the
     # process is hung and docker marks the container unhealthy
@@ -57,3 +60,4 @@ services:
 volumes:
   redis_data:
   ollama_data:
+  whisper_cache:

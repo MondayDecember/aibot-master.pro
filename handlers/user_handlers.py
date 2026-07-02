@@ -149,6 +149,10 @@ async def handle_text(message: Message, redis):
     should_handle, text = await gate_group_message(message, message.text)
     if not should_handle or not text:
         return
+    # Unknown commands ("/typo") fall through to this handler - don't feed
+    # them to the LLM, silence is less confusing than a hallucinated answer
+    if text.startswith("/"):
+        return
     bot_message = await message.answer(t("thinking"), parse_mode="HTML")
     await enqueue_llm_job(
         redis, message, bot_message,

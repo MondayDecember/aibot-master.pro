@@ -143,7 +143,7 @@ async def main():
         worker_task.cancel()
         backup_task.cancel()
         heartbeat_task.cancel()
-        await redis_client.close()
+        await redis_client.aclose()
         await bot.session.close()
         logger.info("Bot shut down gracefully.")
 

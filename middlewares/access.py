@@ -34,6 +34,9 @@ class AccessMiddleware(BaseMiddleware):
         logger.info(f"Rejected update from unauthorized user {user_id}")
         if isinstance(event, CallbackQuery):
             await event.answer(t("access_denied_short"), show_alert=True)
-        elif isinstance(event, Message):
+        elif isinstance(event, Message) and event.chat.type == "private":
+            # Reply only in private chats. In groups stay silent - otherwise
+            # the bot would answer "access denied" to every message of every
+            # non-allowed group member and flood the chat.
             await event.answer(t("access_denied", user_id=user_id))
         return None
