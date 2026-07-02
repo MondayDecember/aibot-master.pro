@@ -17,7 +17,11 @@ services:
     pull_policy: always
 
   watchtower:
-    image: containrrr/watchtower
+    # containrrr/watchtower is unmaintained (last image build: 2023-11-11)
+    # and fails against newer Docker Engine API requirements ("client
+    # version 1.25 is too old"). nickfedor/watchtower is the actively
+    # maintained continuation of the same project.
+    image: ghcr.io/nickfedor/watchtower:latest
     container_name: aiogram_watchtower
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock

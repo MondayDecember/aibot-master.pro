@@ -103,7 +103,10 @@ async def main():
 
     # 3. Init Redis Queue
     try:
-        redis_client = Redis.from_url(REDIS_URL, decode_responses=True)
+        # socket_keepalive: without it, idle connections get silently reset
+        # by Docker Desktop's Windows/WSL2 network layer, which surfaced as
+        # periodic "Timeout reading from redis" errors from the worker.
+        redis_client = Redis.from_url(REDIS_URL, decode_responses=True, socket_keepalive=True)
         await redis_client.ping()
         logger.info("Connected to Redis successfully.")
     except Exception as e:
