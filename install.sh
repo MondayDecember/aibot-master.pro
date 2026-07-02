@@ -46,14 +46,21 @@ else
     echo "Файл .env уже существует — оставляю как есть."
 fi
 
-# Use Ollama on the host if it's already running, otherwise run it in docker
+# Use Ollama on the host if it's already running, otherwise run it in docker.
+# Only touch OLLAMA_API_BASE while it still points to a default location -
+# a custom value (e.g. a remote Ollama server) must be left alone.
 if curl -sf http://localhost:11434/api/tags >/dev/null 2>&1; then
     echo "Найдена Ollama на хосте (localhost:11434) — бот будет использовать её."
     OLLAMA_IN_DOCKER=0
 else
     echo "Ollama на хосте не найдена — запускаю её в docker-контейнере."
     OLLAMA_IN_DOCKER=1
-    sed_i "s|^OLLAMA_API_BASE=.*|OLLAMA_API_BASE=http://ollama:11434/v1|" .env
+    api_base=$(grep -E "^OLLAMA_API_BASE=" .env || true)
+    if echo "$api_base" | grep -qE "host\.docker\.internal|localhost|127\.0\.0\.1"; then
+        sed_i "s|^OLLAMA_API_BASE=.*|OLLAMA_API_BASE=http://ollama:11434/v1|" .env
+    elif [ -n "$api_base" ] && ! echo "$api_base" | grep -q "//ollama:"; then
+        echo "В .env задан свой OLLAMA_API_BASE — оставляю его как есть."
+    fi
     # COMPOSE_PROFILES in .env makes plain 'docker compose up -d' include ollama
     grep -q "^COMPOSE_PROFILES=" .env || echo "COMPOSE_PROFILES=ollama" >> .env
 fi
@@ -68,6 +75,20 @@ TEXT_MODEL=${TEXT_MODEL:-llama3}
 VISION_MODEL=${VISION_MODEL:-llama3.2-vision}
 
 if [ "$OLLAMA_IN_DOCKER" = "1" ]; then
+    # Wait until the ollama server inside the container answers
+    echo "Жду запуска Ollama в контейнере..."
+    ready=0
+    for _ in $(seq 1 30); do
+        if docker compose exec ollama ollama list >/dev/null 2>&1; then
+            ready=1
+            break
+        fi
+        sleep 2
+    done
+    if [ "$ready" != "1" ]; then
+        echo "Ollama в контейнере не отвечает. Скачайте модели вручную: docker compose exec ollama ollama pull $TEXT_MODEL"
+        exit 1
+    fi
     echo "Скачиваю модели (может занять много времени, они большие)..."
     docker compose exec ollama ollama pull "$TEXT_MODEL"
     docker compose exec ollama ollama pull "$VISION_MODEL"

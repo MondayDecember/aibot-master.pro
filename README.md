@@ -35,6 +35,7 @@ irm https://raw.githubusercontent.com/MondayDecember/aibot-master.pro/main/insta
 ```bash
 git clone https://github.com/MondayDecember/aibot-master.pro.git aibot-master
 cd aibot-master
+mkdir -p data          # папка для БД; создайте её ДО запуска, иначе docker создаст её от root
 cp .env.example .env   # на Windows: copy .env.example .env
 ```
 
