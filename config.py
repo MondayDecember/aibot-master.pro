@@ -13,6 +13,12 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 # when it doesn't exist yet - docker silently creates a directory in its place).
 DB_PATH = os.getenv("DB_PATH", "bot_data.db")
 
+# Automatic web search: before answering, the bot asks the LLM in a separate
+# request whether the message needs current data from the web. Smart, but it
+# doubles the latency of EVERY text/voice reply. Turn it off to answer roughly
+# twice as fast - the explicit /web command keeps working either way.
+AUTO_WEB_SEARCH = os.getenv("AUTO_WEB_SEARCH", "true").strip().lower() in ("1", "true", "yes", "on")
+
 TEXT_MODEL = os.getenv("TEXT_MODEL", "llama3")
 VISION_MODEL = os.getenv("VISION_MODEL", "llama3.2-vision")
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")

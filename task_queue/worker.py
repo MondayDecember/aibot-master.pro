@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 from aiogram import Bot
-from config import PERSONAS
+from config import PERSONAS, AUTO_WEB_SEARCH
 from utils.llm_client import generate_response, should_search_web
 from utils.web_search import perform_web_search
 from db.database import get_history, add_message, get_user_model, get_user_persona
@@ -61,7 +61,7 @@ async def process_queue(bot: Bot, redis_client):
 
                     # Let the model decide for itself if it needs to search the web
                     # (skip for explicit /web calls and non-text prompts like vision).
-                    if context_type in ("text", "voice") and isinstance(prompt, str):
+                    if AUTO_WEB_SEARCH and context_type in ("text", "voice") and isinstance(prompt, str):
                         if await should_search_web(prompt, model_override=user_model):
                             if bot_message_id:
                                 await _edit_status(bot, chat_id, bot_message_id, "<i>Searching the web...</i>")
