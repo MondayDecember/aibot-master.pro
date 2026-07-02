@@ -24,6 +24,14 @@ jobs:
 
       - run: pytest -q
 
+      # Make sure the compose files (incl. the auto-update overlay) merge
+      # into a valid configuration - a typo here breaks every install
+      - name: Validate compose files
+        run: |
+          cp .env.example .env
+          docker compose -f docker-compose.yml config -q
+          docker compose -f docker-compose.yml -f docker-compose.autoupdate.yml config -q
+
   build:
     # A broken commit must not reach users via Watchtower auto-update
     needs: test
