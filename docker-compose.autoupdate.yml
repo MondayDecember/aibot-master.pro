@@ -1,0 +1,27 @@
+# Auto-update overlay: run the bot from the prebuilt ghcr.io image and let
+# Watchtower swap it for the new one whenever a push to main publishes it.
+#
+# Enable by adding this line to .env:
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.autoupdate.yml
+# (on Windows the separator is ';' instead of ':')
+#
+# Then start WITHOUT --build:
+#   docker compose up -d
+#
+# From that moment updates are fully automatic: a push to GitHub builds the
+# image, and within ~10 minutes Watchtower pulls it and restarts the bot.
+# The database (./data) and .env are untouched by updates.
+services:
+  bot:
+    image: ghcr.io/mondaydecember/aibot-master.pro:latest
+    pull_policy: always
+
+  watchtower:
+    image: containrrr/watchtower
+    container_name: aiogram_watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    # Watch ONLY the bot container (never touch other containers on the
+    # host), check every 10 minutes, delete replaced images.
+    command: --interval 600 --cleanup aiogram_bot
+    restart: unless-stopped

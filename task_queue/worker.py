@@ -6,6 +6,7 @@ from aiogram import Bot
 from aiogram.utils.chat_action import ChatActionSender
 from config import PERSONAS, AUTO_WEB_SEARCH, STREAM_RESPONSES
 from utils.llm_client import generate_response, stream_response, should_search_web
+from utils.memory import needs_summary, update_summary
 from utils.texts import t
 from utils.web_search import perform_web_search
 from db.database import get_history, add_message, get_user_model, get_user_persona
@@ -52,11 +53,22 @@ async def process_queue(bot: Bot, redis_client):
             if result:
                 _, data_json = result
                 job_data = json.loads(data_json)
-                
+                context_type = job_data.get("context_type", "text")
+
+                # Internal job: refresh long-term memory. Queued like any
+                # other job so it never competes with a user reply for the LLM.
+                if context_type == "summarize":
+                    try:
+                        await update_summary(job_data["history_id"])
+                    except Exception as e:
+                        logger.error(f"Long-term memory update failed: {e}")
+                    continue
+
                 chat_id = job_data["chat_id"]
                 user_id = job_data["user_id"]
+                # History key: chat id in groups, user id in private chats
+                history_id = job_data.get("history_id", user_id)
                 prompt = job_data["prompt"]
-                context_type = job_data.get("context_type", "text")
                 bot_message_id = job_data.get("bot_message_id")
                 
                 # Fetch DB History is now handled directly by the LLM client
@@ -96,7 +108,7 @@ async def process_queue(bot: Bot, redis_client):
                             response_text = ""
                             last_edit = time.monotonic()
                             async for delta in stream_response(
-                                final_prompt, user_id, final_context_type,
+                                final_prompt, history_id, final_context_type,
                                 model_override=user_model, system_prompt=system_prompt
                             ):
                                 response_text += delta
@@ -108,15 +120,22 @@ async def process_queue(bot: Bot, redis_client):
                                     last_edit = now
                         else:
                             response_text = await generate_response(
-                                final_prompt, user_id, final_context_type,
+                                final_prompt, history_id, final_context_type,
                                 model_override=user_model, system_prompt=system_prompt
                             )
 
                     # Persist the turn now, after history was fetched for generation,
                     # so the current message isn't duplicated into its own context.
                     history_content = job_data.get("history_content", prompt if isinstance(prompt, str) else "")
-                    await add_message(user_id, "user", history_content)
-                    await add_message(user_id, "assistant", response_text)
+                    await add_message(history_id, "user", history_content)
+                    await add_message(history_id, "assistant", response_text)
+
+                    # Enough new messages piled up? Queue a memory refresh.
+                    if await needs_summary(history_id):
+                        await redis_client.rpush("llm_queue", json.dumps({
+                            "context_type": "summarize",
+                            "history_id": history_id,
+                        }))
                     
                     # Edit telegram message with final response. Plain text on
                     # purpose: the bot's default parse_mode is HTML, and LLM

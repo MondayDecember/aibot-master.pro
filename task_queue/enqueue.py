@@ -27,10 +27,13 @@ async def enqueue_llm_job(
     prompt,
     history_content: str,
     context_type: str,
+    history_id: int = None,
 ) -> bool:
     """
     Single entry point for queueing LLM work: enforces the per-user rate
     limit and shows the queue position when the worker is busy.
+    `history_id` is the conversation-history key (chat id in groups, user id
+    in private chats); defaults to the author's user id.
     Returns False (and tells the user) when the rate limit was hit.
     """
     user_id = message.from_user.id
@@ -44,6 +47,7 @@ async def enqueue_llm_job(
     job_data = {
         "chat_id": message.chat.id,
         "user_id": user_id,
+        "history_id": history_id if history_id is not None else user_id,
         "prompt": prompt,
         "history_content": history_content,
         "context_type": context_type,

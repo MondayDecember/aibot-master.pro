@@ -38,6 +38,16 @@ async def init_db():
         await db.execute(
             "CREATE INDEX IF NOT EXISTS idx_history_user ON history(user_id, id)"
         )
+        # Long-term memory: one running summary per history key (user id in
+        # private chats, chat id in groups). message_count = how many history
+        # rows existed when the summary was last refreshed.
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS memory (
+                history_id INTEGER PRIMARY KEY,
+                summary TEXT,
+                message_count INTEGER DEFAULT 0
+            )
+        ''')
         await db.commit()
         logger.info("Database initialized.")
 
@@ -91,6 +101,32 @@ async def get_history(user_id: int, limit: int = 10) -> List[Dict[str, str]]:
         ) as cursor:
             rows = await cursor.fetchall()
             return [{"role": row[0], "content": row[1]} for row in reversed(rows)]
+
+async def get_memory(history_id: int):
+    """Returns (summary, message_count_at_last_refresh) for a history key."""
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute(
+            "SELECT summary, message_count FROM memory WHERE history_id = ?", (history_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return (row[0], row[1] or 0) if row else (None, 0)
+
+async def set_memory(history_id: int, summary: str, message_count: int):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute(
+            "INSERT INTO memory (history_id, summary, message_count) VALUES (?, ?, ?) "
+            "ON CONFLICT(history_id) DO UPDATE SET summary = excluded.summary, "
+            "message_count = excluded.message_count",
+            (history_id, summary, message_count)
+        )
+        await db.commit()
+
+async def count_messages(history_id: int) -> int:
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute(
+            "SELECT COUNT(*) FROM history WHERE user_id = ?", (history_id,)
+        ) as cursor:
+            return (await cursor.fetchone())[0]
 
 async def get_stats() -> Dict[str, int]:
     """Aggregate numbers for the owner-only /stats command."""

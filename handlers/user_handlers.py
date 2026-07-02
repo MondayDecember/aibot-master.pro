@@ -6,6 +6,7 @@ from aiogram.filters import CommandStart, Command, CommandObject
 from config import AVAILABLE_MODELS, TEXT_MODEL, PERSONAS, ADMIN_USER_ID, DB_PATH
 from db.database import clear_history, get_user_model, set_user_model, get_user_persona, set_user_persona, get_stats
 from task_queue.enqueue import enqueue_llm_job
+from utils.group import gate_group_message, history_key
 from utils.texts import t
 from utils.web_search import perform_web_search
 
@@ -17,7 +18,8 @@ async def cmd_start(message: Message):
 
 @router.message(Command("clear"))
 async def cmd_clear(message: Message):
-    await clear_history(message.from_user.id)
+    # In groups this clears the shared group history, in private - the user's
+    await clear_history(history_key(message))
     await message.answer(t("cleared"))
 
 @router.message(Command("stats"))
@@ -134,14 +136,20 @@ async def cmd_web(message: Message, command: CommandObject, redis):
         prompt=prompt,
         history_content=f"Searched web for: {query}",
         context_type="web_search",
+        history_id=history_key(message),
     )
 
 @router.message(F.text)
 async def handle_text(message: Message, redis):
+    # In groups: react only to @mentions or replies to the bot
+    should_handle, text = await gate_group_message(message, message.text)
+    if not should_handle or not text:
+        return
     bot_message = await message.answer(t("thinking"), parse_mode="HTML")
     await enqueue_llm_job(
         redis, message, bot_message,
-        prompt=message.text,
-        history_content=message.text,
+        prompt=text,
+        history_content=text,
         context_type="text",
+        history_id=history_key(message),
     )

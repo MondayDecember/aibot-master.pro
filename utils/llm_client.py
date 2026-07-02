@@ -1,7 +1,7 @@
 import logging
 from openai import AsyncOpenAI
-from config import OLLAMA_API_BASE, OLLAMA_API_KEY, TEXT_MODEL, VISION_MODEL, HISTORY_LIMIT
-from db.database import get_history
+from config import OLLAMA_API_BASE, OLLAMA_API_KEY, TEXT_MODEL, VISION_MODEL, HISTORY_LIMIT, LONG_TERM_MEMORY
+from db.database import get_history, get_memory
 from utils.texts import t
 
 logger = logging.getLogger(__name__)
@@ -22,7 +22,19 @@ async def _build_request(prompt, user_id, context_type, model_override, system_p
     For vision, prompt is a list of content dicts (text + image_url).
     """
     history = await get_history(user_id, limit=HISTORY_LIMIT)
-    messages = ([{"role": "system", "content": system_prompt}] if system_prompt else []) + history
+    system_parts = []
+    if system_prompt:
+        system_parts.append(system_prompt)
+    if LONG_TERM_MEMORY:
+        summary, _ = await get_memory(user_id)
+        if summary:
+            system_parts.append(
+                "Long-term memory - summary of the earlier conversation:\n" + summary
+            )
+    system_messages = (
+        [{"role": "system", "content": "\n\n".join(system_parts)}] if system_parts else []
+    )
+    messages = system_messages + history
     messages.append({"role": "user", "content": prompt})
     model = VISION_MODEL if context_type == "vision" else (model_override or TEXT_MODEL)
     return messages, model

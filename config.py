@@ -68,6 +68,15 @@ HISTORY_LIMIT = int(os.getenv("HISTORY_LIMIT", "10"))
 BACKUP_INTERVAL_HOURS = int(os.getenv("BACKUP_INTERVAL_HOURS", "24"))
 BACKUP_KEEP = int(os.getenv("BACKUP_KEEP", "7"))
 
+# Long-term memory: every SUMMARIZE_EVERY new messages the bot asks the LLM
+# to fold older conversation into a compact summary (max SUMMARY_MAX_CHARS),
+# which is then prepended to every request. This lets the bot "remember"
+# things beyond the HISTORY_LIMIT window at the cost of one extra LLM call
+# per SUMMARIZE_EVERY messages (queued, so it never delays user replies).
+LONG_TERM_MEMORY = os.getenv("LONG_TERM_MEMORY", "true").strip().lower() in ("1", "true", "yes", "on")
+SUMMARIZE_EVERY = int(os.getenv("SUMMARIZE_EVERY", "20"))
+SUMMARY_MAX_CHARS = int(os.getenv("SUMMARY_MAX_CHARS", "1500"))
+
 TEXT_MODEL = os.getenv("TEXT_MODEL", "llama3")
 VISION_MODEL = os.getenv("VISION_MODEL", "llama3.2-vision")
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")
