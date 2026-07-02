@@ -5,6 +5,7 @@ from aiogram import BaseMiddleware
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
 from config import ALLOWED_USER_IDS
+from utils.texts import t
 
 logger = logging.getLogger(__name__)
 
@@ -32,10 +33,7 @@ class AccessMiddleware(BaseMiddleware):
         user_id = user.id if user else "unknown"
         logger.info(f"Rejected update from unauthorized user {user_id}")
         if isinstance(event, CallbackQuery):
-            await event.answer("Access denied.", show_alert=True)
+            await event.answer(t("access_denied_short"), show_alert=True)
         elif isinstance(event, Message):
-            await event.answer(
-                f"Access denied. Your Telegram ID: {user_id}\n"
-                "Ask the bot owner to add it to ALLOWED_USER_IDS in .env."
-            )
+            await event.answer(t("access_denied", user_id=user_id))
         return None

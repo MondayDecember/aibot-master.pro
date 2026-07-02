@@ -27,15 +27,30 @@ STREAM_RESPONSES = os.getenv("STREAM_RESPONSES", "true").strip().lower() in ("1"
 # Access control: comma-separated telegram user IDs allowed to use the bot.
 # Empty = the bot answers everyone. Rejected users are shown their ID so the
 # owner can add them.
-def _parse_allowed_ids(raw: str) -> frozenset:
-    ids = set()
+def _parse_allowed_ids(raw: str) -> list:
+    ids = []
     for part in raw.split(","):
         part = part.strip()
-        if part.isdigit():
-            ids.add(int(part))
-    return frozenset(ids)
+        if part.isdigit() and int(part) not in ids:
+            ids.append(int(part))
+    return ids
 
-ALLOWED_USER_IDS = _parse_allowed_ids(os.getenv("ALLOWED_USER_IDS", ""))
+_allowed_list = _parse_allowed_ids(os.getenv("ALLOWED_USER_IDS", ""))
+ALLOWED_USER_IDS = frozenset(_allowed_list)
+
+# Admin for /stats: explicit ADMIN_USER_ID, or the first entry of
+# ALLOWED_USER_IDS. None = /stats is disabled.
+_admin_raw = os.getenv("ADMIN_USER_ID", "").strip()
+ADMIN_USER_ID = int(_admin_raw) if _admin_raw.isdigit() else (_allowed_list[0] if _allowed_list else None)
+
+# Language of the bot's own interface messages ("en" or "ru"). Model replies
+# are always in whatever language the user writes in.
+BOT_LANGUAGE = os.getenv("BOT_LANGUAGE", "en").strip().lower()
+
+# Anti-spam: how many LLM requests one user may queue per minute (0 = off).
+# Commands like /clear or /model are not counted - only messages that cost
+# LLM time (text, voice, photos, documents, /web).
+RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "10"))
 
 # How many characters of an uploaded document are passed to the LLM. Local
 # models have small context windows (llama3: 8k tokens), so keep this modest.

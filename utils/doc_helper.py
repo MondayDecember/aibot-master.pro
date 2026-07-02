@@ -5,6 +5,8 @@ import logging
 from aiogram import Bot
 from aiogram.types import Document
 
+from utils.texts import t
+
 logger = logging.getLogger(__name__)
 
 # Telegram Bot API refuses to download files bigger than 20 MB
@@ -31,14 +33,11 @@ async def extract_document_text(bot: Bot, document: Document):
     """
     name = (document.file_name or "").lower()
     if document.file_size and document.file_size > MAX_FILE_SIZE:
-        return None, "The file is too large - telegram bots can only download files up to 20 MB."
+        return None, t("doc_too_large")
 
     is_pdf = name.endswith(".pdf")
     if not is_pdf and not name.endswith(TEXT_EXTENSIONS):
-        return None, (
-            "Unsupported file type. Send a PDF or a plain-text file "
-            "(.txt, .md, .csv, code files etc.)."
-        )
+        return None, t("doc_unsupported")
 
     try:
         file_info = await bot.get_file(document.file_id)
@@ -47,7 +46,7 @@ async def extract_document_text(bot: Bot, document: Document):
         data = buf.getvalue()
     except Exception as e:
         logger.error(f"Failed to download document: {e}")
-        return None, "Sorry, failed to download the file from telegram."
+        return None, t("doc_download_failed")
 
     try:
         if is_pdf:
@@ -57,12 +56,9 @@ async def extract_document_text(bot: Bot, document: Document):
             text = data.decode("utf-8", errors="replace")
     except Exception as e:
         logger.error(f"Failed to extract text from document '{name}': {e}")
-        return None, "Sorry, couldn't read this file - it may be corrupted."
+        return None, t("doc_unreadable")
 
     text = text.strip()
     if not text:
-        return None, (
-            "Couldn't extract any text from this file. If it's a scanned PDF, "
-            "it contains images instead of text - try sending pages as photos."
-        )
+        return None, t("doc_no_text")
     return text, None

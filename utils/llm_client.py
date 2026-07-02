@@ -2,6 +2,7 @@ import logging
 from openai import AsyncOpenAI
 from config import OLLAMA_API_BASE, OLLAMA_API_KEY, TEXT_MODEL, VISION_MODEL, HISTORY_LIMIT
 from db.database import get_history
+from utils.texts import t
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +45,7 @@ async def generate_response(
         return response.choices[0].message.content
     except Exception as e:
         logger.error(f"LLM Client error: {e}")
-        return "I'm sorry, I couldn't process that request at the moment."
+        return t("llm_unavailable")
 
 async def stream_response(
     prompt,

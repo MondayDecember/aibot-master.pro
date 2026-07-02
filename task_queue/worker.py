@@ -6,6 +6,7 @@ from aiogram import Bot
 from aiogram.utils.chat_action import ChatActionSender
 from config import PERSONAS, AUTO_WEB_SEARCH, STREAM_RESPONSES
 from utils.llm_client import generate_response, stream_response, should_search_web
+from utils.texts import t
 from utils.web_search import perform_web_search
 from db.database import get_history, add_message, get_user_model, get_user_persona
 
@@ -72,7 +73,7 @@ async def process_queue(bot: Bot, redis_client):
                     if AUTO_WEB_SEARCH and context_type in ("text", "voice") and isinstance(prompt, str):
                         if await should_search_web(prompt, model_override=user_model):
                             if bot_message_id:
-                                await _edit_status(bot, chat_id, bot_message_id, "<i>Searching the web...</i>")
+                                await _edit_status(bot, chat_id, bot_message_id, t("searching"))
                             search_results = await asyncio.to_thread(perform_web_search, prompt)
                             final_prompt = (
                                 f"User asked: {prompt}\n\n"
@@ -83,7 +84,7 @@ async def process_queue(bot: Bot, redis_client):
 
                     # Update status
                     if bot_message_id:
-                        await _edit_status(bot, chat_id, bot_message_id, "<i>Generating response...</i>")
+                        await _edit_status(bot, chat_id, bot_message_id, t("generating"))
 
                     # Show "typing..." in telegram for the whole generation;
                     # with streaming on, also grow the placeholder message as
@@ -122,7 +123,7 @@ async def process_queue(bot: Bot, redis_client):
                     # output with < > & (code, math) would fail to parse.
                     # Telegram also caps messages at 4096 chars, so split.
                     chunks = _split_message(
-                        (response_text or "").strip() or "The model returned an empty response."
+                        (response_text or "").strip() or t("empty_response")
                     )
                     if bot_message_id:
                         await bot.edit_message_text(
@@ -139,10 +140,7 @@ async def process_queue(bot: Bot, redis_client):
                 except Exception as e:
                     logger.error(f"Error generating response: {e}")
                     if bot_message_id:
-                        await _edit_status(
-                            bot, chat_id, bot_message_id,
-                            "Sorry, I encountered an error processing your request."
-                        )
+                        await _edit_status(bot, chat_id, bot_message_id, t("error_generic"))
                     
         except asyncio.CancelledError:
             logger.info("Worker task cancelled.")

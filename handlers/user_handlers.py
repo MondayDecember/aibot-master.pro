@@ -1,26 +1,48 @@
 import asyncio
-import json
+import os
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import CommandStart, Command, CommandObject
-from config import AVAILABLE_MODELS, TEXT_MODEL, PERSONAS
-from db.database import clear_history, get_user_model, set_user_model, get_user_persona, set_user_persona
+from config import AVAILABLE_MODELS, TEXT_MODEL, PERSONAS, ADMIN_USER_ID, DB_PATH
+from db.database import clear_history, get_user_model, set_user_model, get_user_persona, set_user_persona, get_stats
+from task_queue.enqueue import enqueue_llm_job
+from utils.texts import t
 from utils.web_search import perform_web_search
 
 router = Router()
 
 @router.message(CommandStart())
 async def cmd_start(message: Message):
-    await message.answer(
-        "Hello! I am your AI assistant. Send me text, voice messages, photos, "
-        "or documents (PDF / plain text), use /web <query> to search the web, "
-        "/model to switch the text model, or /persona to change my personality."
-    )
+    await message.answer(t("start"))
 
 @router.message(Command("clear"))
 async def cmd_clear(message: Message):
     await clear_history(message.from_user.id)
-    await message.answer("Conversation history cleared!")
+    await message.answer(t("cleared"))
+
+@router.message(Command("stats"))
+async def cmd_stats(message: Message, redis):
+    """Owner-only bot statistics (admin = ADMIN_USER_ID or the first allowed ID)."""
+    if not ADMIN_USER_ID or message.from_user.id != ADMIN_USER_ID:
+        await message.answer(t("stats_admin_only"))
+        return
+    stats = await get_stats()
+    queue_len = await redis.llen("llm_queue")
+    try:
+        db_size = os.path.getsize(DB_PATH)
+    except OSError:
+        db_size = 0
+    await message.answer(
+        t(
+            "stats",
+            users=stats["users"],
+            messages=stats["messages"],
+            today=stats["today"],
+            queue=queue_len,
+            db_size=f"{db_size / 1024 / 1024:.2f} MB",
+        ),
+        parse_mode="HTML",
+    )
 
 def _model_keyboard(current: str) -> InlineKeyboardMarkup:
     buttons = [
@@ -37,7 +59,7 @@ async def cmd_model(message: Message):
     """Show current text model and let the user switch it (photo analysis is unaffected - it always uses VISION_MODEL)."""
     current = await get_user_model(message.from_user.id) or TEXT_MODEL
     await message.answer(
-        f"Current text model: <code>{current}</code>\nPick one:",
+        t("current_model", model=current),
         parse_mode="HTML",
         reply_markup=_model_keyboard(current)
     )
@@ -47,15 +69,15 @@ async def cb_model(callback: CallbackQuery):
     key = callback.data.split(":", 1)[1]
     model_name = AVAILABLE_MODELS.get(key)
     if not model_name:
-        await callback.answer("Unknown model", show_alert=True)
+        await callback.answer(t("unknown_model"), show_alert=True)
         return
     await set_user_model(callback.from_user.id, model_name)
     await callback.message.edit_text(
-        f"Text model switched to: <code>{model_name}</code>",
+        t("model_switched", model=model_name),
         parse_mode="HTML",
         reply_markup=_model_keyboard(model_name)
     )
-    await callback.answer(f"Switched to {key}")
+    await callback.answer(t("switched_to", key=key))
 
 def _persona_keyboard(current_key: str) -> InlineKeyboardMarkup:
     buttons = [
@@ -72,7 +94,7 @@ async def cmd_persona(message: Message):
     """Show current persona and let the user switch it. Applies to every reply, including photo descriptions."""
     current = await get_user_persona(message.from_user.id) or "default"
     await message.answer(
-        f"Current persona: <b>{current}</b>\nPick one:",
+        t("current_persona", persona=current),
         parse_mode="HTML",
         reply_markup=_persona_keyboard(current)
     )
@@ -81,15 +103,15 @@ async def cmd_persona(message: Message):
 async def cb_persona(callback: CallbackQuery):
     key = callback.data.split(":", 1)[1]
     if key not in PERSONAS:
-        await callback.answer("Unknown persona", show_alert=True)
+        await callback.answer(t("unknown_persona"), show_alert=True)
         return
     await set_user_persona(callback.from_user.id, key)
     await callback.message.edit_text(
-        f"Persona switched to: <b>{key}</b>",
+        t("persona_switched", persona=key),
         parse_mode="HTML",
         reply_markup=_persona_keyboard(key)
     )
-    await callback.answer(f"Switched to {key}")
+    await callback.answer(t("switched_to", key=key))
 
 @router.message(Command("web"))
 async def cmd_web(message: Message, command: CommandObject, redis):
@@ -97,38 +119,29 @@ async def cmd_web(message: Message, command: CommandObject, redis):
     # CommandObject handles /web@botname and doesn't touch "/web" inside the query
     query = (command.args or "").strip()
     if not query:
-        await message.answer("Please provide a search query. Example: /web current weather in London")
+        await message.answer(t("web_usage"))
         return
-        
-    bot_message = await message.answer("<i>Searching the web...</i>", parse_mode="HTML")
+
+    bot_message = await message.answer(t("searching"), parse_mode="HTML")
 
     # Run the blocking DDGS network call in a thread so it doesn't stall the event loop
     search_results = await asyncio.to_thread(perform_web_search, query)
 
     prompt = f"User asked: {query}\n\nHere are some web search results:\n{search_results}\n\nPlease synthesize an answer based on these results."
 
-    # Queue job (user message is persisted by the worker, after it fetches history)
-    job_data = {
-        "chat_id": message.chat.id,
-        "user_id": message.from_user.id,
-        "prompt": prompt,
-        "history_content": f"Searched web for: {query}",
-        "context_type": "web_search",
-        "bot_message_id": bot_message.message_id
-    }
-    await redis.rpush("llm_queue", json.dumps(job_data))
+    await enqueue_llm_job(
+        redis, message, bot_message,
+        prompt=prompt,
+        history_content=f"Searched web for: {query}",
+        context_type="web_search",
+    )
 
 @router.message(F.text)
 async def handle_text(message: Message, redis):
-    bot_message = await message.answer("<i>Thinking...</i>", parse_mode="HTML")
-
-    # Queue job (user message is persisted by the worker, after it fetches history)
-    job_data = {
-        "chat_id": message.chat.id,
-        "user_id": message.from_user.id,
-        "prompt": message.text,
-        "history_content": message.text,
-        "context_type": "text",
-        "bot_message_id": bot_message.message_id
-    }
-    await redis.rpush("llm_queue", json.dumps(job_data))
+    bot_message = await message.answer(t("thinking"), parse_mode="HTML")
+    await enqueue_llm_job(
+        redis, message, bot_message,
+        prompt=message.text,
+        history_content=message.text,
+        context_type="text",
+    )

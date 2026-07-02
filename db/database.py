@@ -92,6 +92,19 @@ async def get_history(user_id: int, limit: int = 10) -> List[Dict[str, str]]:
             rows = await cursor.fetchall()
             return [{"role": row[0], "content": row[1]} for row in reversed(rows)]
 
+async def get_stats() -> Dict[str, int]:
+    """Aggregate numbers for the owner-only /stats command."""
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute("SELECT COUNT(DISTINCT user_id) FROM history") as cursor:
+            users = (await cursor.fetchone())[0]
+        async with db.execute("SELECT COUNT(*) FROM history") as cursor:
+            messages = (await cursor.fetchone())[0]
+        async with db.execute(
+            "SELECT COUNT(*) FROM history WHERE timestamp >= datetime('now', 'start of day')"
+        ) as cursor:
+            today = (await cursor.fetchone())[0]
+    return {"users": users, "messages": messages, "today": today}
+
 async def clear_history(user_id: int):
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute("DELETE FROM history WHERE user_id = ?", (user_id,))
