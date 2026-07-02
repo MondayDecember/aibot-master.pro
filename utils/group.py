@@ -1,6 +1,32 @@
+import random
 import re
 
 from aiogram.types import Message
+
+from config import GROUP_CHATTINESS, GROUP_CHATTER_COOLDOWN
+
+# The instruction for a spontaneous remark. Recent group messages come from
+# history, so the model sees what people are talking about.
+CHATTER_PROMPT = (
+    "You are a member of this group chat, not an assistant right now. Read "
+    "the recent conversation and drop one short, natural remark - a reaction, "
+    "a joke, an opinion or a question. One or two sentences max. Write in the "
+    "language of the conversation. Don't introduce yourself, don't offer "
+    "help, don't summarize the chat - just chime in like a person would."
+)
+
+
+async def should_chime_in(redis, chat_id: int) -> bool:
+    """Roll the dice for a spontaneous group remark, respecting the per-chat
+    cooldown (SET NX also makes it race-safe)."""
+    if GROUP_CHATTINESS <= 0:
+        return False
+    if random.random() * 100 >= GROUP_CHATTINESS:
+        return False
+    acquired = await redis.set(
+        f"chatter:{chat_id}", "1", nx=True, ex=GROUP_CHATTER_COOLDOWN
+    )
+    return bool(acquired)
 
 
 def history_key(message: Message) -> int:

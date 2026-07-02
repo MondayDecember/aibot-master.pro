@@ -128,7 +128,10 @@ async def process_queue(bot: Bot, redis_client):
                     # Persist the turn now, after history was fetched for generation,
                     # so the current message isn't duplicated into its own context.
                     history_content = job_data.get("history_content", prompt if isinstance(prompt, str) else "")
-                    await add_message(history_id, "user", history_content)
+                    # Empty history_content = bot-initiated job (group chatter):
+                    # only the bot's own remark goes into the history
+                    if history_content:
+                        await add_message(history_id, "user", history_content)
                     await add_message(history_id, "assistant", response_text)
 
                     # Enough new messages piled up? Queue a memory refresh.

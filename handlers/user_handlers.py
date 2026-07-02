@@ -1,12 +1,13 @@
 import asyncio
+import json
 import os
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import CommandStart, Command, CommandObject
 from config import AVAILABLE_MODELS, TEXT_MODEL, PERSONAS, ADMIN_USER_ID, DB_PATH
-from db.database import clear_history, get_user_model, set_user_model, get_user_persona, set_user_persona, get_stats
+from db.database import add_message, clear_history, get_user_model, set_user_model, get_user_persona, set_user_persona, get_stats
 from task_queue.enqueue import enqueue_llm_job
-from utils.group import gate_group_message, history_key
+from utils.group import gate_group_message, history_key, should_chime_in, CHATTER_PROMPT
 from utils.texts import t
 from utils.web_search import perform_web_search
 
@@ -145,19 +146,44 @@ async def cmd_web(message: Message, command: CommandObject, redis):
 
 @router.message(F.text)
 async def handle_text(message: Message, redis):
+    is_group = message.chat.type != "private"
     # In groups: react only to @mentions or replies to the bot
     should_handle, text = await gate_group_message(message, message.text)
-    if not should_handle or not text:
+
+    if not should_handle:
+        # Not addressed to the bot. Still remember the message so the bot
+        # follows the group conversation, and - if chatter is enabled -
+        # occasionally chime in on its own like a regular member.
+        if is_group and message.text and not message.text.startswith("/"):
+            author = message.from_user.first_name or "Someone"
+            await add_message(history_key(message), "user", f"{author}: {message.text}")
+            if await should_chime_in(redis, message.chat.id):
+                # Bot-initiated: no placeholder message, no rate limit, and
+                # empty history_content so the instruction itself is not
+                # stored as a user message
+                await redis.rpush("llm_queue", json.dumps({
+                    "chat_id": message.chat.id,
+                    "user_id": message.from_user.id,
+                    "history_id": history_key(message),
+                    "prompt": CHATTER_PROMPT,
+                    "history_content": "",
+                    "context_type": "group_chatter",
+                }))
+        return
+
+    if not text:
         return
     # Unknown commands ("/typo") fall through to this handler - don't feed
     # them to the LLM, silence is less confusing than a hallucinated answer
     if text.startswith("/"):
         return
     bot_message = await message.answer(t("thinking"), parse_mode="HTML")
+    # In groups prefix the author's name so the shared history stays readable
+    history_content = f"{message.from_user.first_name}: {text}" if is_group else text
     await enqueue_llm_job(
         redis, message, bot_message,
         prompt=text,
-        history_content=text,
+        history_content=history_content,
         context_type="text",
         history_id=history_key(message),
     )

@@ -52,6 +52,14 @@ BOT_LANGUAGE = os.getenv("BOT_LANGUAGE", "en").strip().lower()
 # LLM time (text, voice, photos, documents, /web).
 RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "10"))
 
+# Group chatter: let the bot occasionally join the group conversation on its
+# own, like a regular member. GROUP_CHATTINESS is the percent chance (0-100)
+# to react to any given group message it wasn't addressed in; 0 = off. The
+# cooldown guarantees at most one spontaneous remark per chat per interval,
+# no matter how lively the chat is.
+GROUP_CHATTINESS = int(os.getenv("GROUP_CHATTINESS", "0"))
+GROUP_CHATTER_COOLDOWN = int(os.getenv("GROUP_CHATTER_COOLDOWN", "300"))
+
 # How many characters of an uploaded document are passed to the LLM. Local
 # models have small context windows (llama3: 8k tokens), so keep this modest.
 DOC_MAX_CHARS = int(os.getenv("DOC_MAX_CHARS", "12000"))
