@@ -14,7 +14,8 @@ if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
 
 # The menu runs inside the bot image (python is guaranteed there), with the
 # host .env mounted in. ';' is the COMPOSE_FILE separator on windows.
-docker compose run --rm --no-deps -v "${PWD}/.env:/app/.env" bot `
+# --user root: makes the mounted .env writable regardless of file ownership.
+docker compose run --rm --no-deps --user root -v "${PWD}/.env:/app/.env" bot `
     python tools/configure.py --env /app/.env --sep ";"
 
 if ($LASTEXITCODE -eq 0) {

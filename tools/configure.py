@@ -83,10 +83,12 @@ def comment_out(lines, key):
 
 
 def _ask(prompt):
+    """Returns the stripped input, or None when stdin is closed (no TTY) -
+    the caller must treat None as 'quit', otherwise the menu loops forever."""
     try:
         return input(prompt).strip()
     except EOFError:
-        return ""
+        return None
 
 
 def _edit_setting(lines, key, title, kind, hint):
@@ -96,7 +98,7 @@ def _edit_setting(lines, key, title, kind, hint):
         print(f"  {hint}")
     print(f"  Сейчас: {current if current not in (None, '') else '(не задано)'}")
     raw = _ask("  Новое значение (Enter = не менять): ")
-    if not raw:
+    if raw is None or not raw:
         return lines
     if kind.startswith("choice:"):
         options = kind.split(":", 1)[1].split(",")
@@ -159,7 +161,7 @@ def main():
         print("  q. Выйти без сохранения")
 
         choice = _ask("\nЧто изменить? ")
-        if choice == "q":
+        if choice is None or choice == "q":
             print("Изменения отброшены.")
             return 2
         if choice == "0":
