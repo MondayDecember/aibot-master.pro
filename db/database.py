@@ -1,11 +1,16 @@
+import os
 import aiosqlite
 import logging
 from typing import List, Dict
 
-DB_NAME = "bot_data.db"
+from config import DB_PATH as DB_NAME
+
 logger = logging.getLogger(__name__)
 
 async def init_db():
+    db_dir = os.path.dirname(DB_NAME)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute('''
             CREATE TABLE IF NOT EXISTS history (

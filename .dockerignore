@@ -1,0 +1,12 @@
+.git
+.gitignore
+.github
+.env
+*.db
+data/
+__pycache__/
+*.pyc
+README.md
+install.sh
+install.ps1
+Makefile

@@ -4,7 +4,7 @@ Telegram-бот на локальной LLM (Ollama), собранный на о
 
 ## Возможности
 
-- **Текстовый чат** с историей диалога (SQLite, `bot_data.db`), не сбрасывается при рестарте.
+- **Текстовый чат** с историей диалога (SQLite, `data/bot_data.db`), не сбрасывается при рестарте.
 - **Анализ изображений** — пришлите фото, бот опишет/ответит на вопрос по картинке (модель `VISION_MODEL`).
 - **Голосовые сообщения** — распознавание речи через `faster-whisper`, транскрипция уходит в LLM.
 - **Поиск в интернете** — бот сам решает через LLM-классификатор, нужны ли для ответа актуальные данные (новости, курсы, погода и т.п.), и в этом случае ищет через DuckDuckGo. Также доступна ручная команда `/web <запрос>`.
@@ -12,20 +12,30 @@ Telegram-бот на локальной LLM (Ollama), собранный на о
 
 ## Требования
 
-- Docker + Docker Compose.
-- [Ollama](https://ollama.com), запущенная на хосте (порт `11434`), с загруженными моделями:
-  ```
-  ollama pull llama3
-  ollama pull llama3.2-vision
-  ```
+- Docker + Docker Compose v2.
 - Токен Telegram-бота от [@BotFather](https://t.me/BotFather).
+- [Ollama](https://ollama.com) — либо уже запущенная на хосте (порт `11434`), либо установщик сам поднимет её в docker-контейнере.
 
-## Установка
+## Быстрая установка (одна команда)
+
+Установщик проверит Docker, спросит токен бота, сам найдёт Ollama на хосте (или запустит её в докере и скачает модели) и поднимет все контейнеры.
+
+**Linux / macOS:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/MondayDecember/aibot-master.pro/main/install.sh | bash
+```
+
+**Windows (PowerShell):**
+```powershell
+irm https://raw.githubusercontent.com/MondayDecember/aibot-master.pro/main/install.ps1 | iex
+```
+
+## Установка вручную
 
 ```bash
 git clone https://github.com/MondayDecember/aibot-master.pro.git aibot-master
 cd aibot-master
-copy .env.example .env   # на Linux/Mac: cp .env.example .env
+cp .env.example .env   # на Windows: copy .env.example .env
 ```
 
 Откройте `.env` и заполните:
@@ -35,15 +45,22 @@ BOT_TOKEN=<токен от BotFather>
 OLLAMA_API_BASE=http://host.docker.internal:11434/v1
 ```
 
-`host.docker.internal` — так контейнер бота обращается к Ollama, запущенной на хосте. Если Ollama крутится в докере на той же сети — укажите вместо этого имя её контейнера.
+`host.docker.internal` — так контейнер бота обращается к Ollama, запущенной на хосте. Убедитесь, что модели скачаны:
+```
+ollama pull llama3
+ollama pull llama3.2-vision
+```
+
+Если своей Ollama нет — раскомментируйте в `.env` строку `COMPOSE_PROFILES=ollama` и укажите `OLLAMA_API_BASE=http://ollama:11434/v1`: тогда Ollama поднимется docker-контейнером вместе с ботом (модели скачайте через `docker compose exec ollama ollama pull llama3` и т.д.).
 
 ## Запуск
 
 ```bash
-docker compose build --no-cache bot
-docker compose up -d
+docker compose up -d --build
 docker compose logs -f bot
 ```
+
+База данных бота хранится в `./data/bot_data.db`. Если вы обновляетесь со старой версии, где файл лежал в корне (`./bot_data.db`), перенесите его: `mkdir -p data && mv bot_data.db data/` (установщик делает это автоматически).
 
 В логах должно появиться:
 ```

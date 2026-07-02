@@ -1,19 +1,19 @@
-version: '3.8'
-
 services:
   bot:
     build: .
     container_name: aiogram_bot
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     env_file:
       - .env
     environment:
       # Override the REDIS_URL to point to the docker redis service
       - REDIS_URL=redis://redis:6379/0
+      - DB_PATH=/app/data/bot_data.db
     volumes:
       # Persist the sqlite database on the host machine
-      - ./bot_data.db:/app/bot_data.db
+      - ./data:/app/data
     restart: unless-stopped
     # Needed to reach Ollama running on the host machine via host.docker.internal
     extra_hosts:
@@ -22,12 +22,30 @@ services:
   redis:
     image: redis:7-alpine
     container_name: aiogram_redis
-    ports:
-      - "6379:6379"
+    # No ports: exposed on purpose - the bot reaches redis over the internal
+    # compose network, and a passwordless redis must never listen publicly.
     volumes:
       # Persist the redis queues
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # Optional: run Ollama in docker instead of on the host.
+  # Enable with: docker compose --profile ollama up -d
+  # (or put COMPOSE_PROFILES=ollama in .env) and set
+  # OLLAMA_API_BASE=http://ollama:11434/v1
+  ollama:
+    image: ollama/ollama
+    container_name: aiogram_ollama
+    profiles: ["ollama"]
+    volumes:
+      - ollama_data:/root/.ollama
     restart: unless-stopped
 
 volumes:
   redis_data:
+  ollama_data:

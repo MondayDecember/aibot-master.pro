@@ -8,6 +8,11 @@ OLLAMA_API_BASE = os.getenv("OLLAMA_API_BASE", "http://localhost:11434/v1")
 OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "ollama")
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
+# SQLite database file. In docker-compose this is overridden to /app/data/bot_data.db
+# so the whole data/ directory can be bind-mounted (mounting a single file breaks
+# when it doesn't exist yet - docker silently creates a directory in its place).
+DB_PATH = os.getenv("DB_PATH", "bot_data.db")
+
 TEXT_MODEL = os.getenv("TEXT_MODEL", "llama3")
 VISION_MODEL = os.getenv("VISION_MODEL", "llama3.2-vision")
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")
