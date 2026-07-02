@@ -7,7 +7,7 @@ from aiogram import Bot
 from aiogram.utils.chat_action import ChatActionSender
 from config import build_system_prompt, AUTO_WEB_SEARCH, STREAM_RESPONSES
 from utils.alerts import notify_admin
-from utils.llm_client import generate_response, stream_response, should_search_web
+from utils.llm_client import generate_response, stream_response, plan_web_search
 from utils.memory import needs_summary, update_summary
 from utils.texts import t
 from utils.web_search import perform_web_search
@@ -147,16 +147,19 @@ async def process_queue(bot: Bot, redis_client):
                     persona_key = await get_user_persona(user_id) or "default"
                     system_prompt = build_system_prompt(persona_key)
 
-                    # Let the model decide for itself if it needs to search the web
-                    # (skip for explicit /web calls and non-text prompts like vision).
+                    # Let the model decide for itself if it needs to search the web,
+                    # and have it write the actual search query (skip for explicit
+                    # /web calls and non-text prompts like vision) - the raw
+                    # question is often a bad search query on its own.
                     if AUTO_WEB_SEARCH and context_type in ("text", "voice") and isinstance(prompt, str):
-                        if await should_search_web(prompt, model_override=user_model):
+                        search_query = await plan_web_search(prompt, model_override=user_model)
+                        if search_query:
                             if bot_message_id:
                                 await _edit_status(bot, chat_id, bot_message_id, t("searching"))
-                            search_results = await asyncio.to_thread(perform_web_search, prompt)
+                            search_results = await asyncio.to_thread(perform_web_search, search_query)
                             final_prompt = (
                                 f"User asked: {prompt}\n\n"
-                                f"Here are some web search results:\n{search_results}\n\n"
+                                f"Here are some web search results for \"{search_query}\":\n{search_results}\n\n"
                                 f"Please synthesize an answer based on these results."
                             )
                             final_context_type = "web_search"

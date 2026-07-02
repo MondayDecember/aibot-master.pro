@@ -46,7 +46,7 @@ _TEXTS = {
             "Couldn't extract any text from this file. If it's a scanned PDF, "
             "it contains images instead of text - try sending pages as photos."
         ),
-        "doc_truncated": "\n\n[The document was truncated to the first {n} characters]",
+        "doc_truncated": "\n\n[The document is too long for my context window ({n} chars) - showing excerpts from the beginning, middle, and end rather than the whole thing]",
         "error_generic": "Sorry, I encountered an error processing your request.",
         "llm_unavailable": "I'm sorry, I couldn't process that request at the moment.",
         "empty_response": "The model returned an empty response.",
@@ -143,7 +143,7 @@ _TEXTS = {
             "В файле не нашлось текста. Если это сканированный PDF, в нём картинки "
             "вместо текста — попробуйте прислать страницы как фото."
         ),
-        "doc_truncated": "\n\n[Документ обрезан до первых {n} символов]",
+        "doc_truncated": "\n\n[Документ длиннее, чем позволяет контекст модели ({n} симв.) - показаны отрывки из начала, середины и конца, а не целиком]",
         "error_generic": "Извините, при обработке запроса произошла ошибка.",
         "llm_unavailable": "Извините, сейчас не получилось обработать запрос.",
         "empty_response": "Модель вернула пустой ответ.",

@@ -82,14 +82,24 @@ async def stream_response(
         if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
             yield chunk.choices[0].delta.content
 
-async def should_search_web(prompt: str, model_override: str = None) -> bool:
+async def plan_web_search(prompt: str, model_override: str = None) -> str | None:
     """
-    Ask the model whether answering `prompt` needs current/real-time information
-    from the web (news, prices, weather, sports scores, recent releases, etc.).
-    Defaults to False (no search) on any ambiguous answer or error. Uses
-    `model_override` when given so the classifier runs on the same model that
-    will generate the answer (avoids swapping two different models in/out of
-    Ollama for a single message).
+    Ask the model whether answering `prompt` needs current/real-time
+    information from the web, and if so, what to actually search for.
+    Returns None when no search is needed, or a short search-engine-ready
+    query string.
+
+    The raw user question is usually a bad search query - question words
+    ("какая", "what", "how") and a trailing "?" make search engines latch
+    onto the wrong part of the sentence (e.g. "какая сейчас погода в
+    Томске?" returned dictionary/grammar pages about the word "какая"
+    instead of anything about Tomsk's weather). So the model is asked to
+    rewrite the question into plain keywords in the same pass as the
+    yes/no decision, instead of the raw prompt being used as the query.
+
+    Uses `model_override` when given so this runs on the same model that
+    will generate the answer (avoids swapping two different models in/out
+    of Ollama for a single message).
     """
     try:
         response = await client.chat.completions.create(
@@ -98,11 +108,15 @@ async def should_search_web(prompt: str, model_override: str = None) -> bool:
                 {
                     "role": "system",
                     "content": (
-                        "You decide whether answering the user's next message requires "
+                        "Decide whether answering the user's next message requires "
                         "searching the web for current or real-time information (news, prices, "
                         "weather, sports scores, recent releases, live events, facts that change "
                         "over time, etc.). General knowledge, coding help, and conversation do not "
-                        "need a search. Reply with exactly one word: YES or NO."
+                        "need a search.\n"
+                        "If no search is needed, reply with exactly: NO\n"
+                        "If a search is needed, reply with: YES: <search query>\n"
+                        "The query must be plain keywords a search engine understands well - no "
+                        "question words, no question mark - in the same language as the user's message."
                     )
                 },
                 {"role": "user", "content": prompt}
@@ -110,15 +124,18 @@ async def should_search_web(prompt: str, model_override: str = None) -> bool:
             temperature=0,
             # Reasoning models (Qwen3.5, DeepSeek-R1-style, etc.) put their
             # chain-of-thought in a separate `reasoning` field and only write
-            # the final YES/NO into `content` afterwards - max_tokens=3 cut
-            # them off mid-thought, so should_search_web always saw an empty
-            # content and returned False, no matter the question. Non-reasoning
-            # models still stop right after "YES"/"NO" on their own, so this
+            # the final answer into `content` afterwards - a tiny max_tokens
+            # cut them off mid-thought, so this always saw empty content and
+            # returned "no search needed", no matter the question. Non-reasoning
+            # models still stop right after their answer on their own, so this
             # ceiling doesn't add latency for them.
             max_tokens=500
         )
-        answer = (response.choices[0].message.content or "").strip().upper()
-        return answer.startswith("YES")
+        answer = (response.choices[0].message.content or "").strip()
+        if not answer.upper().startswith("YES"):
+            return None
+        _, _, query = answer.partition(":")
+        return query.strip() or prompt
     except Exception as e:
-        logger.error(f"Web search decision error: {e}")
-        return False
+        logger.error(f"Web search planning error: {e}")
+        return None

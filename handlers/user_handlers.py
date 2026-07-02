@@ -92,10 +92,14 @@ async def _build_model_choices() -> dict:
     return choices
 
 def _model_keyboard(current: str, choices: dict) -> InlineKeyboardMarkup:
+    # "default" (the fallback when MODEL_CHOICES has no real aliases) isn't a
+    # meaningful label on its own - just show the model. A genuine custom
+    # alias like "coder"/"uncensored" is still worth showing alongside it.
     buttons = [
         [InlineKeyboardButton(
             text=("✅ " if model_name == current else "")
-                 + (_short_label(model_name) if key.startswith("auto") else f"{key}: {_short_label(model_name)}"),
+                 + (_short_label(model_name) if key in ("default",) or key.startswith("auto")
+                    else f"{key}: {_short_label(model_name)}"),
             callback_data=f"model:{key}"
         )]
         for key, model_name in choices.items()
