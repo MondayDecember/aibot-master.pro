@@ -11,6 +11,9 @@ services:
       # Override the REDIS_URL to point to the docker redis service
       - REDIS_URL=redis://redis:6379/0
       - DB_PATH=/app/data/bot_data.db
+      # Keep the downloaded TTS voice model on the persistent ./data volume
+      # too, so it doesn't get re-downloaded on every container update
+      - TTS_VOICE_DIR=/app/data/tts_voices
     volumes:
       # Persist the sqlite database on the host machine
       - ./data:/app/data

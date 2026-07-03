@@ -11,3 +11,6 @@ os.environ.setdefault("DB_PATH", os.path.join(_tmp, "test_bot.db"))
 os.environ.setdefault("SUMMARIZE_EVERY", "5")
 os.environ.setdefault("BACKUP_KEEP", "3")
 os.environ.setdefault("BACKUP_INTERVAL_HOURS", "0")
+# Importing task_queue.worker pulls in utils.tts_helper, which downloads a
+# voice model at import time when VOICE_REPLIES is on - keep tests offline.
+os.environ.setdefault("VOICE_REPLIES", "false")

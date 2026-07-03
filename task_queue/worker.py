@@ -4,12 +4,14 @@ import logging
 import re
 import time
 from aiogram import Bot
+from aiogram.types import BufferedInputFile
 from aiogram.utils.chat_action import ChatActionSender
-from config import build_system_prompt, AUTO_WEB_SEARCH, STREAM_RESPONSES, STREAM_EDIT_INTERVAL
+from config import build_system_prompt, AUTO_WEB_SEARCH, STREAM_RESPONSES, STREAM_EDIT_INTERVAL, VOICE_REPLIES
 from utils.alerts import notify_admin
 from utils.llm_client import generate_response, stream_response, plan_web_search
 from utils.memory import needs_summary, update_summary
 from utils.texts import t
+from utils.tts_helper import synthesize_speech
 from utils.web_search import gather_web_context
 from db.database import get_history, add_message, get_user_model, get_user_persona
 
@@ -239,6 +241,19 @@ async def process_queue(bot: Bot, redis_client):
                     else:
                         for chunk in html_chunks:
                             await _send_or_edit_html(bot, chat_id, bot_message_id, chunk, edit=False)
+
+                    # Voice in, voice out: reply with a synthesized voice note
+                    # too when the incoming message was itself a voice message.
+                    # `context_type` here is the *original* value from the job -
+                    # unlike final_context_type it doesn't flip to "web_search".
+                    if VOICE_REPLIES and context_type == "voice":
+                        tts_text = _HTML_TAG_RE.sub("", " ".join(html_chunks))
+                        audio = await synthesize_speech(tts_text)
+                        if audio:
+                            try:
+                                await bot.send_voice(chat_id, BufferedInputFile(audio, filename="reply.ogg"))
+                            except Exception as e:
+                                logger.warning(f"Failed to send voice reply: {e}")
                 except Exception as e:
                     logger.error(f"Error generating response: {e}")
                     await notify_admin(bot, e)

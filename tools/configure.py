@@ -36,6 +36,12 @@ SETTINGS = [
      "Формат: имя=модель,имя=модель. Пусто = только основная модель."),
     ("WHISPER_MODEL", "Распознавание речи", "str",
      "base (быстро) / small / medium / large-v3 (точно)."),
+    ("VOICE_REPLIES", "Голосовые ответы на голосовые сообщения", "bool",
+     "Локальный TTS (Piper), без GPU. false = бот всегда отвечает только текстом."),
+    ("TTS_VOICE", "Голос для TTS", "str",
+     "Имя из https://github.com/rhasspy/piper/blob/master/VOICES.md, напр. ru_RU-dmitri-medium."),
+    ("TTS_MAX_CHARS", "Макс. длина ответа для озвучки, символов", "int",
+     "Длинные ответы обрезаются перед синтезом речи."),
 ]
 
 

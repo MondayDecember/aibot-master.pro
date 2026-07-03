@@ -102,6 +102,19 @@ TEXT_MODEL = os.getenv("TEXT_MODEL", "llama3")
 VISION_MODEL = os.getenv("VISION_MODEL", "llama3.2-vision")
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")
 
+# Voice replies: when a user sends a voice message, also reply with a
+# synthesized voice note (in addition to the text reply), using a local
+# neural TTS model (Piper - CPU-only, no GPU needed, ~0.2s per sentence).
+VOICE_REPLIES = os.getenv("VOICE_REPLIES", "true").strip().lower() in ("1", "true", "yes", "on")
+_default_tts_voice = "ru_RU-dmitri-medium" if BOT_LANGUAGE == "ru" else "en_US-lessac-medium"
+TTS_VOICE = os.getenv("TTS_VOICE", _default_tts_voice)
+# Downloaded once and cached here - point this at the persistent /app/data
+# volume in docker-compose so it survives container recreation.
+TTS_VOICE_DIR = os.getenv("TTS_VOICE_DIR", "tts_voices")
+# Cap how much text gets synthesized - a multi-paragraph reply would take a
+# while to speak and produce an awkwardly long voice note.
+TTS_MAX_CHARS = int(os.getenv("TTS_MAX_CHARS", "1000"))
+
 # Models selectable in Telegram via /model, e.g.:
 # MODEL_CHOICES=default=qwen2.5vl:7b,coder=qwen3-coder:30b,uncensored=hf.co/OBLITERATUS/Gemma-4-12B-OBLITERATED:Q4_K_M
 # Falls back to just TEXT_MODEL as "default" if not set. Only affects text/voice/web_search

@@ -5,7 +5,7 @@ import re
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Set by docker-compose / wrappers, intentionally not in .env.example
-INFRA_KEYS = {"DB_PATH", "HEARTBEAT_FILE"}
+INFRA_KEYS = {"DB_PATH", "HEARTBEAT_FILE", "TTS_VOICE_DIR"}
 
 
 def _env_example_keys():
