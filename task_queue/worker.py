@@ -5,7 +5,7 @@ import re
 import time
 from aiogram import Bot
 from aiogram.utils.chat_action import ChatActionSender
-from config import build_system_prompt, AUTO_WEB_SEARCH, STREAM_RESPONSES
+from config import build_system_prompt, AUTO_WEB_SEARCH, STREAM_RESPONSES, STREAM_EDIT_INTERVAL
 from utils.alerts import notify_admin
 from utils.llm_client import generate_response, stream_response, plan_web_search
 from utils.memory import needs_summary, update_summary
@@ -16,9 +16,6 @@ from db.database import get_history, add_message, get_user_model, get_user_perso
 logger = logging.getLogger(__name__)
 
 TELEGRAM_MESSAGE_LIMIT = 4096
-# Minimum seconds between streaming edits of the same message - telegram
-# throttles frequent edits, ~1/sec per chat is the safe zone.
-STREAM_EDIT_INTERVAL = 1.5
 
 _MD_TABLE_SEP_RE = re.compile(r"^\|?[\s:|-]+\|?\s*$", re.MULTILINE)
 _MD_TABLE_ROW_RE = re.compile(r"^\|(.+)\|\s*$", re.MULTILINE)
@@ -186,7 +183,15 @@ async def process_queue(bot: Bot, redis_client):
                                 if (now - last_edit >= STREAM_EDIT_INTERVAL
                                         and response_text.strip()
                                         and len(response_text) < TELEGRAM_MESSAGE_LIMIT - 2):
-                                    await _try_edit(bot, chat_id, bot_message_id, response_text + " ▌")
+                                    # Render markdown as we stream, so the text
+                                    # looks formatted while it grows instead of
+                                    # visibly "re-drawing" on the final edit.
+                                    # Unclosed markup in a partial text stays
+                                    # literal (regexes need both delimiters),
+                                    # and _try_edit swallows a rejected edit.
+                                    preview = _markdown_to_telegram_html(response_text)
+                                    await _try_edit(bot, chat_id, bot_message_id,
+                                                    preview + " ▌", parse_mode="HTML")
                                     last_edit = now
                         else:
                             response_text = await generate_response(

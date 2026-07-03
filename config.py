@@ -24,6 +24,11 @@ AUTO_WEB_SEARCH = os.getenv("AUTO_WEB_SEARCH", "true").strip().lower() in ("1", 
 # telegram connection is rate-limited.
 STREAM_RESPONSES = os.getenv("STREAM_RESPONSES", "true").strip().lower() in ("1", "true", "yes", "on")
 
+# Seconds between streaming edits of the growing reply. Telegram throttles
+# message edits (~1/sec per chat is the safe floor) - going lower makes the
+# stream smoother but risks flood-wait pauses that freeze it entirely.
+STREAM_EDIT_INTERVAL = float(os.getenv("STREAM_EDIT_INTERVAL", "1.0"))
+
 # Access control: comma-separated telegram user IDs allowed to use the bot.
 # Empty = the bot answers everyone. Rejected users are shown their ID so the
 # owner can add them.
@@ -117,8 +122,10 @@ BASE_SYSTEM_PROMPT = (
     "writing a document. Reply in plain, natural conversational sentences. "
     "Do not use Markdown headers (#, ##), horizontal rules (---), tables "
     "(pipes |), or blockquotes (>) - Telegram shows them as literal symbols, "
-    "not formatting. Keep answers as short as the question deserves; don't "
-    "pad a simple question into a long structured essay with many sections. "
+    "not formatting. Match the depth of the answer to the question: greetings "
+    "and small talk deserve a line or two, but substantive questions deserve a "
+    "complete, generous answer - explain, give details, reasons and examples, "
+    "don't cut the explanation short. "
     "Always reply in the same language the user writes in."
 )
 
