@@ -8,6 +8,14 @@ from config import WEB_FETCH_PAGES, WEB_PAGE_MAX_CHARS
 
 logger = logging.getLogger(__name__)
 
+# Last line of defense against context-window overflow: WEB_FETCH_PAGES x
+# WEB_PAGE_MAX_CHARS can add up to ~4300 chars on its own (2 pages x 2000
+# chars + a third result's snippet) - on top of chat history and the system
+# prompt that was enough to blow a 4096-token model context and fail the
+# whole request with a 400 'exceeds context size' error. This caps the
+# *total* assembled context regardless of how those two settings are tuned.
+MAX_TOTAL_WEB_CONTEXT_CHARS = 2500
+
 # A regular browser UA - some sites answer 403 to obvious bots/empty agents
 _USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -123,4 +131,6 @@ async def gather_web_context(query: str) -> str:
             body = (result.get("body") or "No snippet").strip()[:300]
         formatted += f"[{idx}] {result.get('title', 'No Title')}\n"
         formatted += f"Source: {result.get('href', 'No link')}\n{body}\n\n"
+    if len(formatted) > MAX_TOTAL_WEB_CONTEXT_CHARS:
+        formatted = formatted[:MAX_TOTAL_WEB_CONTEXT_CHARS].rstrip() + "…"
     return formatted
