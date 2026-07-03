@@ -70,6 +70,16 @@ function Install-Aibot {
         if ($au -eq "y") {
             (Get-Content .env) -replace "^# COMPOSE_FILE=.*", "COMPOSE_FILE=docker-compose.yml;docker-compose.autoupdate.yml" | Set-Content .env
         }
+
+        Write-Host ""
+        Write-Host "Модель для анализа фото (vision) - бот распознаёт, что на картинке, а не рисует их:"
+        Write-Host "  1) llama3.2-vision (11B) - от Meta, надёжный универсальный выбор"
+        Write-Host "  2) qwen2.5vl:7b - легче и часто точнее на бенчмарках (по умолчанию)"
+        Write-Host "  3) moondream - совсем лёгкая и быстрая, слабее качеством - для слабого железа"
+        $visionChoice = Read-Host "Выбор [2]"
+        $visionModelMap = @{ "1" = "llama3.2-vision"; "2" = "qwen2.5vl:7b"; "3" = "moondream" }
+        $chosenVision = if ($visionModelMap.ContainsKey($visionChoice)) { $visionModelMap[$visionChoice] } else { "qwen2.5vl:7b" }
+        (Get-Content .env) -replace "^VISION_MODEL=.*", "VISION_MODEL=$chosenVision" | Set-Content .env
     } else {
         Write-Host "Файл .env уже существует — оставляю как есть (настройки: .\configure.ps1)."
     }
@@ -78,21 +88,29 @@ function Install-Aibot {
     # Only touch OLLAMA_API_BASE while it still points to a default location -
     # a custom value (e.g. a remote Ollama server) must be left alone.
     $ollamaOnHost = $false
+    $skipDockerOllama = $false
     try {
         Invoke-RestMethod "http://localhost:11434/api/tags" -TimeoutSec 3 | Out-Null
         $ollamaOnHost = $true
         Write-Host "Найдена Ollama на хосте (localhost:11434) — бот будет использовать её."
     } catch {
-        Write-Host "Ollama на хосте не найдена — запускаю её в docker-контейнере."
-        $apiBase = (Get-Content .env | Select-String "^OLLAMA_API_BASE=").Line
-        if ($apiBase -match "host\.docker\.internal|localhost|127\.0\.0\.1" ) {
-            (Get-Content .env) -replace "^OLLAMA_API_BASE=.*", "OLLAMA_API_BASE=http://ollama:11434/v1" | Set-Content .env
-        } elseif ($apiBase -and $apiBase -notmatch "//ollama:") {
-            Write-Host "В .env задан свой OLLAMA_API_BASE — оставляю его как есть." -ForegroundColor Yellow
-        }
-        # COMPOSE_PROFILES in .env makes plain 'docker compose up -d' include ollama
-        if (-not (Select-String -Path .env -Pattern "^COMPOSE_PROFILES=" -Quiet)) {
-            Add-Content .env "COMPOSE_PROFILES=ollama"
+        Write-Host ""
+        Write-Host "Ollama на хосте не найдена (либо ещё не запустилась - проверьте, что она точно не работает)." -ForegroundColor Yellow
+        $runInDocker = Read-Host "Запустить Ollama в отдельном docker-контейнере и скачать в неё модели (несколько ГБ, займёт время и место на диске)? y/n [y]"
+        if ($runInDocker -eq "n") {
+            Write-Host "Пропускаю. Установите Ollama сами (https://ollama.com) или укажите свой OLLAMA_API_BASE в .env, затем: docker compose up -d" -ForegroundColor Yellow
+            $skipDockerOllama = $true
+        } else {
+            $apiBase = (Get-Content .env | Select-String "^OLLAMA_API_BASE=").Line
+            if ($apiBase -match "host\.docker\.internal|localhost|127\.0\.0\.1" ) {
+                (Get-Content .env) -replace "^OLLAMA_API_BASE=.*", "OLLAMA_API_BASE=http://ollama:11434/v1" | Set-Content .env
+            } elseif ($apiBase -and $apiBase -notmatch "//ollama:") {
+                Write-Host "В .env задан свой OLLAMA_API_BASE — оставляю его как есть." -ForegroundColor Yellow
+            }
+            # COMPOSE_PROFILES in .env makes plain 'docker compose up -d' include ollama
+            if (-not (Select-String -Path .env -Pattern "^COMPOSE_PROFILES=" -Quiet)) {
+                Add-Content .env "COMPOSE_PROFILES=ollama"
+            }
         }
     }
 
@@ -117,7 +135,9 @@ function Install-Aibot {
     $textModel = if ($envMap["TEXT_MODEL"]) { $envMap["TEXT_MODEL"] } else { "llama3" }
     $visionModel = if ($envMap["VISION_MODEL"]) { $envMap["VISION_MODEL"] } else { "llama3.2-vision" }
 
-    if (-not $ollamaOnHost) {
+    if ($skipDockerOllama) {
+        Write-Host "Модели не скачаны - настройте свою Ollama и выполните: ollama pull $textModel; ollama pull $visionModel" -ForegroundColor Yellow
+    } elseif (-not $ollamaOnHost) {
         # Wait until the ollama server inside the container answers
         Write-Host "Жду запуска Ollama в контейнере..."
         $ready = $false
