@@ -115,6 +115,13 @@ TTS_VOICE_DIR = os.getenv("TTS_VOICE_DIR", "tts_voices")
 # while to speak and produce an awkwardly long voice note.
 TTS_MAX_CHARS = int(os.getenv("TTS_MAX_CHARS", "1000"))
 
+# Image generation (/imagine): talks to the separate service in imagegen/,
+# which must be started manually (it runs natively on the host - see
+# imagegen/README.md for why it can't just be another docker-compose
+# service). Off by default since most installs won't have it running.
+IMAGEGEN_ENABLED = os.getenv("IMAGEGEN_ENABLED", "false").strip().lower() in ("1", "true", "yes", "on")
+IMAGEGEN_API_BASE = os.getenv("IMAGEGEN_API_BASE", "http://host.docker.internal:7861")
+
 # Models selectable in Telegram via /model, e.g.:
 # MODEL_CHOICES=default=qwen2.5vl:7b,coder=qwen3-coder:30b,uncensored=hf.co/OBLITERATUS/Gemma-4-12B-OBLITERATED:Q4_K_M
 # Falls back to just TEXT_MODEL as "default" if not set. Only affects text/voice/web_search

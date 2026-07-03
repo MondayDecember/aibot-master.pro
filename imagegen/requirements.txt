@@ -1,0 +1,10 @@
+# Pinned to versions confirmed working together with torch-directml (which
+# itself pins torch==2.4.1 - its last release was Sept 2024, so newer
+# diffusers/transformers that assume a newer torch fail to import).
+torch-directml==0.2.5.dev240914
+diffusers==0.30.3
+transformers==4.44.2
+accelerate>=0.30.0
+fastapi>=0.110.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.0.0

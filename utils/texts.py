@@ -101,6 +101,7 @@ _TEXTS = {
         "desc_persona": "Change the bot's personality",
         "desc_stats": "Bot statistics (admin)",
         "desc_menu": "Open the menu",
+        "desc_imagine": "Generate an image",
         "menu_title": (
             "✨ <b>Control panel</b>\n\n"
             "Pick a section — everything here is personal to you: "
@@ -112,6 +113,7 @@ _TEXTS = {
         "menu_help": "❓ Help",
         "menu_stats": "📊 Stats",
         "menu_web": "🔍 Search the web",
+        "menu_imagine": "🎨 Generate an image",
         "back": "◀ Back",
         "persona_default": "🙂 Default",
         "persona_pirate": "🏴‍☠️ Pirate",
@@ -119,6 +121,14 @@ _TEXTS = {
         "persona_sarcastic": "😏 Sarcastic",
         "persona_scientist": "🔬 Scientist",
         "web_prompt": "What should I search for? Send it as your next message.",
+        "imagine_usage": "Describe the image. Example: /imagine a lighthouse at sunset, watercolor",
+        "imagine_prompt": "Describe the image you want. Send it as your next message.",
+        "generating_image": "<i>Generating the image (can take a while on first request)...</i>",
+        "image_gen_unavailable": (
+            "Image generation isn't set up - see imagegen/README.md. "
+            "It runs as a separate local service, not part of the bot itself."
+        ),
+        "image_gen_failed": "Sorry, image generation failed - the imagegen service may not be running.",
     },
     "ru": {
         "start": (
@@ -215,6 +225,7 @@ _TEXTS = {
         "desc_persona": "Сменить характер бота",
         "desc_stats": "Статистика (админ)",
         "desc_menu": "Открыть меню",
+        "desc_imagine": "Сгенерировать картинку",
         "menu_title": (
             "✨ <b>Панель управления</b>\n\n"
             "Выберите раздел — всё настраивается лично для вас: "
@@ -226,6 +237,7 @@ _TEXTS = {
         "menu_help": "❓ Помощь",
         "menu_stats": "📊 Статистика",
         "menu_web": "🔍 Поиск в интернете",
+        "menu_imagine": "🎨 Сгенерировать картинку",
         "back": "◀ Назад",
         "persona_default": "🙂 Обычный",
         "persona_pirate": "🏴‍☠️ Пират",
@@ -233,6 +245,14 @@ _TEXTS = {
         "persona_sarcastic": "😏 Саркастичный",
         "persona_scientist": "🔬 Учёный",
         "web_prompt": "Что искать? Напишите запрос следующим сообщением.",
+        "imagine_usage": "Опишите картинку. Пример: /imagine маяк на закате, акварель",
+        "imagine_prompt": "Опишите картинку, которую хотите получить. Напишите следующим сообщением.",
+        "generating_image": "<i>Генерирую картинку (первый раз может занять время)...</i>",
+        "image_gen_unavailable": (
+            "Генерация картинок не настроена — см. imagegen/README.md. "
+            "Это отдельный локальный сервис, не часть самого бота."
+        ),
+        "image_gen_failed": "Не удалось сгенерировать картинку — возможно, сервис imagegen сейчас не запущен.",
     },
 }
 

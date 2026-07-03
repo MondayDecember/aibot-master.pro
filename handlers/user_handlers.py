@@ -5,13 +5,14 @@ import re
 from aiogram import Router, F
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 from aiogram.filters import CommandStart, Command, CommandObject
-from config import AVAILABLE_MODELS, TEXT_MODEL, PERSONAS, DB_PATH
+from config import AVAILABLE_MODELS, TEXT_MODEL, PERSONAS, DB_PATH, IMAGEGEN_ENABLED
 from db.database import add_message, clear_history, get_user_model, set_user_model, get_user_persona, set_user_persona, get_stats
 from task_queue.enqueue import enqueue_llm_job
 from utils.admin import get_admin_id, set_admin_id, admin_is_env_locked
 from utils.group import gate_group_message, history_key, should_chime_in, CHATTER_PROMPT
+from utils.imagegen_client import generate_image
 from utils.ollama import list_installed_models
 from utils.texts import t
 from utils.web_search import gather_web_context
@@ -20,6 +21,7 @@ router = Router()
 
 class MenuStates(StatesGroup):
     waiting_web_query = State()
+    waiting_imagine_prompt = State()
 
 @router.message(CommandStart())
 async def cmd_start(message: Message):
@@ -211,8 +213,12 @@ def _base_menu_buttons() -> list:
          InlineKeyboardButton(text=t("menu_persona"), callback_data="nav:persona")],
         [InlineKeyboardButton(text=t("menu_web"), callback_data="nav:web"),
          InlineKeyboardButton(text=t("menu_clear"), callback_data="nav:clear")],
-        [InlineKeyboardButton(text=t("menu_help"), callback_data="nav:help")],
     ]
+    # Only shown when the separate imagegen service is configured (see
+    # imagegen/README.md) - otherwise it's just a button that always fails.
+    if IMAGEGEN_ENABLED:
+        buttons.append([InlineKeyboardButton(text=t("menu_imagine"), callback_data="nav:imagine")])
+    buttons.append([InlineKeyboardButton(text=t("menu_help"), callback_data="nav:help")])
     return buttons
 
 async def _main_menu_keyboard(user_id: int) -> InlineKeyboardMarkup:
@@ -318,6 +324,39 @@ async def cmd_web(message: Message, command: CommandObject, redis):
         return
     await _run_web_search(message, redis, query)
 
+@router.callback_query(F.data == "nav:imagine")
+async def cb_nav_imagine(callback: CallbackQuery, state: FSMContext):
+    if not IMAGEGEN_ENABLED:
+        await callback.answer(t("image_gen_unavailable"), show_alert=True)
+        return
+    await state.set_state(MenuStates.waiting_imagine_prompt)
+    await callback.message.edit_text(t("imagine_prompt"), reply_markup=_back_keyboard())
+    await callback.answer()
+
+async def _run_image_generation(message: Message, prompt: str):
+    status = await message.answer(t("generating_image"), parse_mode="HTML")
+    image_bytes = await generate_image(prompt)
+    if not image_bytes:
+        await status.edit_text(t("image_gen_failed"))
+        return
+    await status.delete()
+    await message.answer_photo(
+        BufferedInputFile(image_bytes, filename="image.png"),
+        caption=prompt[:1000]
+    )
+
+@router.message(Command("imagine"))
+async def cmd_imagine(message: Message, command: CommandObject):
+    """Handler for explicit image generation (see imagegen/README.md)."""
+    if not IMAGEGEN_ENABLED:
+        await message.answer(t("image_gen_unavailable"))
+        return
+    prompt = (command.args or "").strip()
+    if not prompt:
+        await message.answer(t("imagine_usage"))
+        return
+    await _run_image_generation(message, prompt)
+
 @router.message(F.text)
 async def handle_text(message: Message, redis, state: FSMContext):
     # Waiting for a search query typed after tapping "Search the web" in
@@ -329,6 +368,16 @@ async def handle_text(message: Message, redis, state: FSMContext):
             await message.answer(t("web_usage"))
             return
         await _run_web_search(message, redis, query)
+        return
+
+    # Same idea, for "Generate an image" in /menu.
+    if await state.get_state() == MenuStates.waiting_imagine_prompt.state:
+        await state.clear()
+        prompt = message.text.strip()
+        if not prompt:
+            await message.answer(t("imagine_usage"))
+            return
+        await _run_image_generation(message, prompt)
         return
 
     is_group = message.chat.type != "private"

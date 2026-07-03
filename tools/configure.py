@@ -42,6 +42,10 @@ SETTINGS = [
      "Имя из https://github.com/rhasspy/piper/blob/master/VOICES.md, напр. ru_RU-dmitri-medium."),
     ("TTS_MAX_CHARS", "Макс. длина ответа для озвучки, символов", "int",
      "Длинные ответы обрезаются перед синтезом речи."),
+    ("IMAGEGEN_ENABLED", "Генерация картинок (/imagine)", "bool",
+     "Нужен отдельный запущенный сервис imagegen/ на хосте - см. imagegen/README.md."),
+    ("IMAGEGEN_API_BASE", "Адрес сервиса генерации картинок", "str",
+     "По умолчанию http://host.docker.internal:7861 - меняйте только если запустили imagegen на другом порту/хосте."),
 ]
 
 

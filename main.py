@@ -12,7 +12,7 @@ from redis.asyncio import Redis
 from utils.texts import t
 from utils.ollama import list_installed_models
 
-from config import BOT_TOKEN, REDIS_URL, OLLAMA_API_BASE, TEXT_MODEL, VISION_MODEL, AVAILABLE_MODELS
+from config import BOT_TOKEN, REDIS_URL, OLLAMA_API_BASE, TEXT_MODEL, VISION_MODEL, AVAILABLE_MODELS, IMAGEGEN_ENABLED
 from db.database import init_db
 from db.backup import backup_loop
 from task_queue.worker import process_queue
@@ -68,7 +68,7 @@ async def heartbeat_loop():
 
 async def setup_commands(bot: Bot):
     """Register the command menu shown by the '/' button in telegram."""
-    await bot.set_my_commands([
+    commands = [
         BotCommand(command="menu", description=t("desc_menu")),
         BotCommand(command="help", description=t("desc_help")),
         BotCommand(command="clear", description=t("desc_clear")),
@@ -76,7 +76,12 @@ async def setup_commands(bot: Bot):
         BotCommand(command="model", description=t("desc_model")),
         BotCommand(command="persona", description=t("desc_persona")),
         BotCommand(command="stats", description=t("desc_stats")),
-    ])
+    ]
+    # Only advertised when the separate imagegen service is configured -
+    # otherwise it's a menu entry that always fails (see imagegen/README.md)
+    if IMAGEGEN_ENABLED:
+        commands.append(BotCommand(command="imagine", description=t("desc_imagine")))
+    await bot.set_my_commands(commands)
 
 async def main():
     if not BOT_TOKEN:
