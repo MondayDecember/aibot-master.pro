@@ -48,6 +48,14 @@ async def init_db():
                 message_count INTEGER DEFAULT 0
             )
         ''')
+        # Bot-level key/value settings changed at runtime (e.g. the admin
+        # claimed via /admin), as opposed to the static .env configuration.
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS bot_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        ''')
         await db.commit()
         logger.info("Database initialized.")
 
@@ -101,6 +109,23 @@ async def get_history(user_id: int, limit: int = 10) -> List[Dict[str, str]]:
         ) as cursor:
             rows = await cursor.fetchall()
             return [{"role": row[0], "content": row[1]} for row in reversed(rows)]
+
+async def get_setting(key: str):
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute(
+            "SELECT value FROM bot_settings WHERE key = ?", (key,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return row[0] if row else None
+
+async def set_setting(key: str, value: str):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute(
+            "INSERT INTO bot_settings (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value)
+        )
+        await db.commit()
 
 async def get_memory(history_id: int):
     """Returns (summary, message_count_at_last_refresh) for a history key."""

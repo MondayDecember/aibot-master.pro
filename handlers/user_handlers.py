@@ -7,9 +7,10 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import CommandStart, Command, CommandObject
-from config import AVAILABLE_MODELS, TEXT_MODEL, PERSONAS, ADMIN_USER_ID, DB_PATH
+from config import AVAILABLE_MODELS, TEXT_MODEL, PERSONAS, DB_PATH
 from db.database import add_message, clear_history, get_user_model, set_user_model, get_user_persona, set_user_persona, get_stats
 from task_queue.enqueue import enqueue_llm_job
+from utils.admin import get_admin_id, set_admin_id, admin_is_env_locked
 from utils.group import gate_group_message, history_key, should_chime_in, CHATTER_PROMPT
 from utils.ollama import list_installed_models
 from utils.texts import t
@@ -52,11 +53,41 @@ async def _stats_text(redis) -> str:
 
 @router.message(Command("stats"))
 async def cmd_stats(message: Message, redis):
-    """Owner-only bot statistics (admin = ADMIN_USER_ID or the first allowed ID)."""
-    if not ADMIN_USER_ID or message.from_user.id != ADMIN_USER_ID:
+    """Owner-only bot statistics."""
+    admin_id = await get_admin_id()
+    if not admin_id or message.from_user.id != admin_id:
         await message.answer(t("stats_admin_only"))
         return
     await message.answer(await _stats_text(redis), parse_mode="HTML")
+
+@router.message(Command("admin"))
+async def cmd_admin(message: Message, command: CommandObject):
+    """Claim adminship when nobody is admin yet (owner skipped entering
+    their ID during install), or transfer it as the current admin."""
+    current = await get_admin_id()
+    user_id = message.from_user.id
+
+    if current is None:
+        await set_admin_id(user_id)
+        await message.answer(t("admin_claimed"))
+        return
+
+    if user_id != current:
+        await message.answer(t("stats_admin_only"))
+        return
+
+    arg = (command.args or "").strip()
+    if not arg:
+        await message.answer(t("admin_current", admin_id=current))
+        return
+    if admin_is_env_locked():
+        await message.answer(t("admin_env_locked"))
+        return
+    if not arg.isdigit():
+        await message.answer(t("admin_usage"))
+        return
+    await set_admin_id(int(arg))
+    await message.answer(t("admin_transferred", admin_id=arg))
 
 def _auto_key(model_name: str) -> str:
     """Stable short key for a model discovered via Ollama (not one of the
@@ -173,27 +204,40 @@ async def cb_persona(callback: CallbackQuery):
     )
     await callback.answer(t("switched_to", key=_persona_label(key)))
 
-def _main_menu_keyboard() -> InlineKeyboardMarkup:
+def _base_menu_buttons() -> list:
+    # Two buttons per row reads nicer than one long column
     buttons = [
-        [InlineKeyboardButton(text=t("menu_model"), callback_data="nav:model")],
-        [InlineKeyboardButton(text=t("menu_persona"), callback_data="nav:persona")],
-        [InlineKeyboardButton(text=t("menu_web"), callback_data="nav:web")],
-        [InlineKeyboardButton(text=t("menu_clear"), callback_data="nav:clear")],
+        [InlineKeyboardButton(text=t("menu_model"), callback_data="nav:model"),
+         InlineKeyboardButton(text=t("menu_persona"), callback_data="nav:persona")],
+        [InlineKeyboardButton(text=t("menu_web"), callback_data="nav:web"),
+         InlineKeyboardButton(text=t("menu_clear"), callback_data="nav:clear")],
         [InlineKeyboardButton(text=t("menu_help"), callback_data="nav:help")],
     ]
-    if ADMIN_USER_ID:
-        buttons.append([InlineKeyboardButton(text=t("menu_stats"), callback_data="nav:stats")])
+    return buttons
+
+async def _main_menu_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    buttons = _base_menu_buttons()
+    # The stats button is shown only to the actual admin - everyone else
+    # would just get an "admins only" alert when tapping it
+    if await get_admin_id() == user_id:
+        buttons[-1].append(InlineKeyboardButton(text=t("menu_stats"), callback_data="nav:stats"))
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 @router.message(Command("menu"))
 async def cmd_menu(message: Message, state: FSMContext):
     await state.clear()
-    await message.answer(t("menu_title"), parse_mode="HTML", reply_markup=_main_menu_keyboard())
+    await message.answer(
+        t("menu_title"), parse_mode="HTML",
+        reply_markup=await _main_menu_keyboard(message.from_user.id)
+    )
 
 @router.callback_query(F.data == "nav:main")
 async def cb_nav_main(callback: CallbackQuery, state: FSMContext):
     await state.clear()
-    await callback.message.edit_text(t("menu_title"), parse_mode="HTML", reply_markup=_main_menu_keyboard())
+    await callback.message.edit_text(
+        t("menu_title"), parse_mode="HTML",
+        reply_markup=await _main_menu_keyboard(callback.from_user.id)
+    )
     await callback.answer()
 
 @router.callback_query(F.data == "nav:model")
@@ -234,7 +278,8 @@ async def cb_nav_help(callback: CallbackQuery):
 
 @router.callback_query(F.data == "nav:stats")
 async def cb_nav_stats(callback: CallbackQuery, redis):
-    if not ADMIN_USER_ID or callback.from_user.id != ADMIN_USER_ID:
+    admin_id = await get_admin_id()
+    if not admin_id or callback.from_user.id != admin_id:
         await callback.answer(t("stats_admin_only"), show_alert=True)
         return
     await callback.message.edit_text(

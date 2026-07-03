@@ -59,12 +59,12 @@ _TEXTS = {
         "queue_position": "<i>Waiting in queue (position {n})...</i>",
         "stats_admin_only": "This command is only available to the bot admin (ADMIN_USER_ID).",
         "stats": (
-            "📊 <b>Bot stats</b>\n"
-            "Users: {users}\n"
-            "Messages total: {messages}\n"
-            "Messages today: {today}\n"
-            "Queue length: {queue}\n"
-            "Database size: {db_size}"
+            "📊 <b>Bot stats</b>\n\n"
+            "👥 Users: <b>{users}</b>\n"
+            "💬 Messages total: <b>{messages}</b>\n"
+            "📅 Today: <b>{today}</b>\n"
+            "⏳ Queue: <b>{queue}</b>\n"
+            "💾 Database: <b>{db_size}</b>"
         ),
         "help": (
             "🤖 <b>What I can do</b>\n"
@@ -77,10 +77,23 @@ _TEXTS = {
             "/model - switch the text model\n"
             "/persona - change my personality\n"
             "/clear - clear conversation history\n"
-            "/stats - bot statistics (admin only)\n\n"
+            "/menu - all of the above as buttons\n"
+            "/stats - bot statistics (admin only)\n"
+            "/admin - become the admin (when none is set) or transfer adminship\n\n"
             "In groups I answer @mentions and replies to my messages."
         ),
         "admin_alert": "⚠️ Bot error:\n{error}",
+        "admin_claimed": (
+            "👑 You are now the bot administrator!\n"
+            "You get /stats and error alerts. Transfer: /admin &lt;user_id&gt;"
+        ),
+        "admin_current": "👑 Current administrator ID: <code>{admin_id}</code>\nTransfer: /admin &lt;user_id&gt;",
+        "admin_usage": "Usage: /admin &lt;telegram user id&gt;",
+        "admin_env_locked": (
+            "The administrator is set in .env (ADMIN_USER_ID / ALLOWED_USER_IDS) - "
+            "change it there or via the configurator on the server."
+        ),
+        "admin_transferred": "👑 Administrator transferred to <code>{admin_id}</code>.",
         "desc_help": "What the bot can do",
         "desc_clear": "Clear conversation history",
         "desc_web": "Search the web",
@@ -88,7 +101,11 @@ _TEXTS = {
         "desc_persona": "Change the bot's personality",
         "desc_stats": "Bot statistics (admin)",
         "desc_menu": "Open the menu",
-        "menu_title": "📋 <b>Menu</b>\nWhat would you like to do?",
+        "menu_title": (
+            "✨ <b>Control panel</b>\n\n"
+            "Pick a section — everything here is personal to you: "
+            "your model, your persona, your history."
+        ),
         "menu_model": "🤖 Switch model",
         "menu_persona": "🎭 Switch persona",
         "menu_clear": "🧹 Clear history",
@@ -96,11 +113,11 @@ _TEXTS = {
         "menu_stats": "📊 Stats",
         "menu_web": "🔍 Search the web",
         "back": "◀ Back",
-        "persona_default": "Default",
-        "persona_pirate": "Pirate",
-        "persona_yoda": "Yoda",
-        "persona_sarcastic": "Sarcastic",
-        "persona_scientist": "Scientist",
+        "persona_default": "🙂 Default",
+        "persona_pirate": "🏴‍☠️ Pirate",
+        "persona_yoda": "🧙 Yoda",
+        "persona_sarcastic": "😏 Sarcastic",
+        "persona_scientist": "🔬 Scientist",
         "web_prompt": "What should I search for? Send it as your next message.",
     },
     "ru": {
@@ -156,12 +173,12 @@ _TEXTS = {
         "queue_position": "<i>В очереди (позиция {n})...</i>",
         "stats_admin_only": "Эта команда доступна только администратору бота (ADMIN_USER_ID).",
         "stats": (
-            "📊 <b>Статистика бота</b>\n"
-            "Пользователей: {users}\n"
-            "Сообщений всего: {messages}\n"
-            "Сообщений сегодня: {today}\n"
-            "В очереди: {queue}\n"
-            "Размер базы: {db_size}"
+            "📊 <b>Статистика бота</b>\n\n"
+            "👥 Пользователей: <b>{users}</b>\n"
+            "💬 Сообщений всего: <b>{messages}</b>\n"
+            "📅 Сегодня: <b>{today}</b>\n"
+            "⏳ В очереди: <b>{queue}</b>\n"
+            "💾 База: <b>{db_size}</b>"
         ),
         "help": (
             "🤖 <b>Что я умею</b>\n"
@@ -174,10 +191,23 @@ _TEXTS = {
             "/model — сменить модель\n"
             "/persona — сменить характер бота\n"
             "/clear — очистить историю диалога\n"
-            "/stats — статистика (для администратора)\n\n"
+            "/menu — всё то же самое кнопками\n"
+            "/stats — статистика (для администратора)\n"
+            "/admin — стать администратором (если он не назначен) или передать права\n\n"
             "В группах отвечаю на @упоминания и реплаи на мои сообщения."
         ),
         "admin_alert": "⚠️ Ошибка бота:\n{error}",
+        "admin_claimed": (
+            "👑 Теперь вы администратор бота!\n"
+            "Вам доступна /stats и оповещения об ошибках. Передать права: /admin &lt;id&gt;"
+        ),
+        "admin_current": "👑 Текущий администратор: <code>{admin_id}</code>\nПередать права: /admin &lt;id&gt;",
+        "admin_usage": "Использование: /admin &lt;telegram id пользователя&gt;",
+        "admin_env_locked": (
+            "Администратор задан в настройках сервера (.env: ADMIN_USER_ID / ALLOWED_USER_IDS) — "
+            "изменить его можно там или через конфигуратор."
+        ),
+        "admin_transferred": "👑 Права администратора переданы <code>{admin_id}</code>.",
         "desc_help": "Что умеет бот",
         "desc_clear": "Очистить историю диалога",
         "desc_web": "Поиск в интернете",
@@ -185,7 +215,11 @@ _TEXTS = {
         "desc_persona": "Сменить характер бота",
         "desc_stats": "Статистика (админ)",
         "desc_menu": "Открыть меню",
-        "menu_title": "📋 <b>Меню</b>\nЧто сделать?",
+        "menu_title": (
+            "✨ <b>Панель управления</b>\n\n"
+            "Выберите раздел — всё настраивается лично для вас: "
+            "своя модель, свой персонаж, своя история."
+        ),
         "menu_model": "🤖 Сменить модель",
         "menu_persona": "🎭 Сменить персонажа",
         "menu_clear": "🧹 Очистить историю",
@@ -193,11 +227,11 @@ _TEXTS = {
         "menu_stats": "📊 Статистика",
         "menu_web": "🔍 Поиск в интернете",
         "back": "◀ Назад",
-        "persona_default": "Обычный",
-        "persona_pirate": "Пират",
-        "persona_yoda": "Йода",
-        "persona_sarcastic": "Саркастичный",
-        "persona_scientist": "Учёный",
+        "persona_default": "🙂 Обычный",
+        "persona_pirate": "🏴‍☠️ Пират",
+        "persona_yoda": "🧙 Йода",
+        "persona_sarcastic": "😏 Саркастичный",
+        "persona_scientist": "🔬 Учёный",
         "web_prompt": "Что искать? Напишите запрос следующим сообщением.",
     },
 }
