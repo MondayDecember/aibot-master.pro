@@ -1,4 +1,3 @@
-import asyncio
 import hashlib
 import json
 import os
@@ -14,7 +13,7 @@ from task_queue.enqueue import enqueue_llm_job
 from utils.group import gate_group_message, history_key, should_chime_in, CHATTER_PROMPT
 from utils.ollama import list_installed_models
 from utils.texts import t
-from utils.web_search import perform_web_search
+from utils.web_search import gather_web_context
 
 router = Router()
 
@@ -252,8 +251,7 @@ async def cb_nav_web(callback: CallbackQuery, state: FSMContext):
 async def _run_web_search(message: Message, redis, query: str):
     bot_message = await message.answer(t("searching"), parse_mode="HTML")
 
-    # Run the blocking DDGS network call in a thread so it doesn't stall the event loop
-    search_results = await asyncio.to_thread(perform_web_search, query)
+    search_results = await gather_web_context(query)
 
     prompt = f"User asked: {query}\n\nHere are some web search results:\n{search_results}\n\nPlease synthesize an answer based on these results."
 

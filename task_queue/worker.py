@@ -10,7 +10,7 @@ from utils.alerts import notify_admin
 from utils.llm_client import generate_response, stream_response, plan_web_search
 from utils.memory import needs_summary, update_summary
 from utils.texts import t
-from utils.web_search import perform_web_search
+from utils.web_search import gather_web_context
 from db.database import get_history, add_message, get_user_model, get_user_persona
 
 logger = logging.getLogger(__name__)
@@ -153,7 +153,7 @@ async def process_queue(bot: Bot, redis_client):
                         if search_query:
                             if bot_message_id:
                                 await _edit_status(bot, chat_id, bot_message_id, t("searching"))
-                            search_results = await asyncio.to_thread(perform_web_search, search_query)
+                            search_results = await gather_web_context(search_query)
                             final_prompt = (
                                 f"User asked: {prompt}\n\n"
                                 f"Here are some web search results for \"{search_query}\":\n{search_results}\n\n"

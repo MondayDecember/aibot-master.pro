@@ -52,6 +52,14 @@ ADMIN_USER_ID = int(_admin_raw) if _admin_raw.isdigit() else (_allowed_list[0] i
 # are always in whatever language the user writes in.
 BOT_LANGUAGE = os.getenv("BOT_LANGUAGE", "en").strip().lower()
 
+# Deep web search: after a DuckDuckGo search the bot OPENS the top N result
+# pages and reads their text, instead of answering from the ~300-char search
+# snippets alone. 0 = snippets only (old behaviour). More pages / more chars
+# = better answers but a larger prompt: make sure the model's context window
+# can take it (2 pages x 2000 chars is safe for the default 4k window).
+WEB_FETCH_PAGES = int(os.getenv("WEB_FETCH_PAGES", "2"))
+WEB_PAGE_MAX_CHARS = int(os.getenv("WEB_PAGE_MAX_CHARS", "2000"))
+
 # Anti-spam: how many LLM requests one user may queue per minute (0 = off).
 # Commands like /clear or /model are not counted - only messages that cost
 # LLM time (text, voice, photos, documents, /web).
