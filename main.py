@@ -87,12 +87,18 @@ async def setup_commands(bot: Bot):
     await bot.set_my_commands(commands)
 
 async def main():
-    if not BOT_TOKEN:
+    if not BOT_TOKEN or BOT_TOKEN == "your_telegram_bot_token_here":
+        # Idle instead of exiting: with restart:unless-stopped an exit would
+        # put the container into a restart loop. The user enters the token
+        # via configure.sh / .env and restarts; the heartbeat stays off on
+        # purpose so the container honestly shows as unhealthy meanwhile.
         logger.error(
-            "BOT_TOKEN is not set. Copy .env.example to .env and fill in the "
-            "token from @BotFather."
+            "BOT_TOKEN is not set. Enter it via configure.sh / configure.ps1 "
+            "(option 1) or in .env, then restart: docker compose up -d"
         )
-        return
+        while True:
+            await asyncio.sleep(600)
+            logger.error("Still waiting for BOT_TOKEN (configure.sh or .env, then restart).")
 
     # 1. Init Database
     await init_db()

@@ -13,6 +13,8 @@ AUTOUPDATE_VALUE = "docker-compose.yml{sep}docker-compose.autoupdate.yml"
 
 # (key, title, kind, hint)
 SETTINGS = [
+    ("BOT_TOKEN", "Токен бота (@BotFather)", "str",
+     "Без него бот не запустится. Получить: напишите /newbot боту @BotFather в Telegram."),
     ("BOT_LANGUAGE", "Язык интерфейса бота", "choice:ru,en",
      "ru — русский, en — английский. На ответы нейросети не влияет."),
     ("ALLOWED_USER_IDS", "Кто может пользоваться ботом", "ids",
@@ -162,7 +164,12 @@ def main():
         print("\n=== Настройки aibot-master ===")
         for idx, (key, title, _kind, _hint) in enumerate(SETTINGS, 1):
             current = get_value(lines, key)
+            if key == "BOT_TOKEN" and current == "your_telegram_bot_token_here":
+                current = None  # untouched .env.example placeholder = not set
             shown = current if current not in (None, "") else "(не задано)"
+            if key == "BOT_TOKEN" and current and len(current) > 12:
+                # Don't print the whole secret on screen
+                shown = current[:6] + "…" + current[-4:]
             print(f" {idx:2}. {title:<48} : {shown}")
         auto_on = bool(get_value(lines, "COMPOSE_FILE"))
         auto_idx = len(SETTINGS) + 1

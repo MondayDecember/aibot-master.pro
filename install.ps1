@@ -42,9 +42,13 @@ function Install-Aibot {
 
     if (-not (Test-Path ".env")) {
         Copy-Item .env.example .env
-        $token = Read-Host "Введите BOT_TOKEN (получить у @BotFather в Telegram)"
-        if (-not $token) { Write-Host "Ошибка: токен пустой." -ForegroundColor Red; return }
-        (Get-Content .env) -replace "^BOT_TOKEN=.*", "BOT_TOKEN=$token" | Set-Content .env
+        $token = Read-Host "Введите BOT_TOKEN (получить у @BotFather; Enter = пропустить и ввести позже)"
+        if ($token) {
+            (Get-Content .env) -replace "^BOT_TOKEN=.*", "BOT_TOKEN=$token" | Set-Content .env
+        } else {
+            Write-Host "Токен пропущен — установка продолжится, бот запустится и будет ждать токена." -ForegroundColor Yellow
+            Write-Host "Ввести позже: .\configure.ps1 (пункт 1) или впишите BOT_TOKEN в .env." -ForegroundColor Yellow
+        }
 
         Write-Host ""
         Write-Host "--- Пара вопросов (Enter = значение по умолчанию, всё можно поменять позже: .\configure.ps1) ---"
@@ -71,12 +75,39 @@ function Install-Aibot {
             (Get-Content .env) -replace "^# COMPOSE_FILE=.*", "COMPOSE_FILE=docker-compose.yml;docker-compose.autoupdate.yml" | Set-Content .env
         }
 
+        # Pick models that actually fit this machine
+        $memGb = 0
+        try { $memGb = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB) } catch {}
+        $gpuNote = ""
+        try {
+            if ((Get-CimInstance Win32_VideoController).Name -match "NVIDIA") {
+                $gpuNote = ", есть видеокарта NVIDIA (модели будут работать быстро)"
+            }
+        } catch {}
+
+        $rec = if ($memGb -lt 8) { "1" } elseif ($memGb -lt 16) { "2" } elseif ($memGb -lt 32) { "3" } else { "4" }
+        Write-Host ""
+        Write-Host "Ваша система: ОЗУ $memGb ГБ$gpuNote."
+        Write-Host "Текстовая модель (мозг бота):"
+        Write-Host "  1) llama3.2:3b — лёгкая и быстрая (~4 ГБ ОЗУ)"
+        Write-Host "  2) llama3 (8B) — баланс качества и скорости (~8 ГБ ОЗУ)"
+        Write-Host "  3) qwen2.5:14b — заметно умнее (~12–16 ГБ ОЗУ)"
+        Write-Host "  4) qwen2.5:32b — максимум качества (~24+ ГБ ОЗУ)"
+        $modelChoice = Read-Host "Выбор [$rec — рекомендуется для вашей системы]"
+        if (-not $modelChoice) { $modelChoice = $rec }
+        $textModelMap = @{ "1" = "llama3.2:3b"; "3" = "qwen2.5:14b"; "4" = "qwen2.5:32b" }
+        if ($textModelMap.ContainsKey($modelChoice)) {
+            (Get-Content .env) -replace "^TEXT_MODEL=.*", "TEXT_MODEL=$($textModelMap[$modelChoice])" | Set-Content .env
+        }
+
+        $visionRec = if ($memGb -lt 8) { "3" } else { "2" }
         Write-Host ""
         Write-Host "Модель для анализа фото (vision) - бот распознаёт, что на картинке, а не рисует их:"
-        Write-Host "  1) llama3.2-vision (11B) - от Meta, надёжный универсальный выбор"
-        Write-Host "  2) qwen2.5vl:7b - легче и часто точнее на бенчмарках (по умолчанию)"
-        Write-Host "  3) moondream - совсем лёгкая и быстрая, слабее качеством - для слабого железа"
-        $visionChoice = Read-Host "Выбор [2]"
+        Write-Host "  1) llama3.2-vision (11B) - от Meta, надёжный универсальный выбор (~10 ГБ ОЗУ)"
+        Write-Host "  2) qwen2.5vl:7b - легче и часто точнее на бенчмарках (~6 ГБ ОЗУ)"
+        Write-Host "  3) moondream - совсем лёгкая и быстрая, слабее качеством - для слабого железа (~3 ГБ ОЗУ)"
+        $visionChoice = Read-Host "Выбор [$visionRec — рекомендуется для вашей системы]"
+        if (-not $visionChoice) { $visionChoice = $visionRec }
         $visionModelMap = @{ "1" = "llama3.2-vision"; "2" = "qwen2.5vl:7b"; "3" = "moondream" }
         $chosenVision = if ($visionModelMap.ContainsKey($visionChoice)) { $visionModelMap[$visionChoice] } else { "qwen2.5vl:7b" }
         (Get-Content .env) -replace "^VISION_MODEL=.*", "VISION_MODEL=$chosenVision" | Set-Content .env

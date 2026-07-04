@@ -38,10 +38,14 @@ sed_i() { sed -i.bak "$1" "$2" && rm -f "$2.bak"; }
 
 if [ ! -f .env ]; then
     cp .env.example .env
-    printf "Введите BOT_TOKEN (получить у @BotFather в Telegram): "
+    printf "Введите BOT_TOKEN (получить у @BotFather; Enter = пропустить и ввести позже): "
     read -r token </dev/tty
-    [ -n "$token" ] || { echo "Ошибка: токен пустой."; exit 1; }
-    sed_i "s|^BOT_TOKEN=.*|BOT_TOKEN=${token}|" .env
+    if [ -n "$token" ]; then
+        sed_i "s|^BOT_TOKEN=.*|BOT_TOKEN=${token}|" .env
+    else
+        echo "Токен пропущен — установка продолжится, бот запустится и будет ждать токена."
+        echo "Ввести позже: bash configure.sh (пункт 1) или впишите BOT_TOKEN в .env."
+    fi
 
     echo ""
     echo "--- Пара вопросов (Enter = значение по умолчанию, всё можно поменять позже: bash configure.sh) ---"
@@ -68,14 +72,43 @@ if [ ! -f .env ]; then
         sed_i "s|^# COMPOSE_FILE=.*|COMPOSE_FILE=docker-compose.yml:docker-compose.autoupdate.yml|" .env
     fi
 
+    # Pick models that actually fit this machine
+    mem_gb=0
+    if [ -r /proc/meminfo ]; then
+        mem_gb=$(( $(grep MemTotal /proc/meminfo | awk '{print $2}') / 1024 / 1024 ))
+    elif command -v sysctl >/dev/null 2>&1; then
+        mem_gb=$(( $(sysctl -n hw.memsize 2>/dev/null || echo 0) / 1073741824 ))
+    fi
+    gpu_note=""
+    command -v nvidia-smi >/dev/null 2>&1 && gpu_note=", есть видеокарта NVIDIA (модели будут работать быстро)"
+
+    if [ "$mem_gb" -lt 8 ]; then rec=1; elif [ "$mem_gb" -lt 16 ]; then rec=2; elif [ "$mem_gb" -lt 32 ]; then rec=3; else rec=4; fi
+    echo ""
+    echo "Ваша система: ОЗУ ${mem_gb} ГБ${gpu_note}."
+    echo "Текстовая модель (мозг бота):"
+    echo "  1) llama3.2:3b — лёгкая и быстрая (~4 ГБ ОЗУ)"
+    echo "  2) llama3 (8B) — баланс качества и скорости (~8 ГБ ОЗУ)"
+    echo "  3) qwen2.5:14b — заметно умнее (~12–16 ГБ ОЗУ)"
+    echo "  4) qwen2.5:32b — максимум качества (~24+ ГБ ОЗУ)"
+    printf "Выбор [%s — рекомендуется для вашей системы]: " "$rec"
+    read -r model_choice </dev/tty
+    case "${model_choice:-$rec}" in
+        1) sed_i "s|^TEXT_MODEL=.*|TEXT_MODEL=llama3.2:3b|" .env ;;
+        3) sed_i "s|^TEXT_MODEL=.*|TEXT_MODEL=qwen2.5:14b|" .env ;;
+        4) sed_i "s|^TEXT_MODEL=.*|TEXT_MODEL=qwen2.5:32b|" .env ;;
+        *) : ;;  # 2 = llama3, already the default in .env.example
+    esac
+
+    vision_rec=2
+    [ "$mem_gb" -lt 8 ] && vision_rec=3
     echo ""
     echo "Модель для анализа фото (vision) - бот распознаёт, что на картинке, а не рисует их:"
-    echo "  1) llama3.2-vision (11B) - от Meta, надёжный универсальный выбор"
-    echo "  2) qwen2.5vl:7b - легче и часто точнее на бенчмарках (по умолчанию)"
-    echo "  3) moondream - совсем лёгкая и быстрая, слабее качеством - для слабого железа"
-    printf "Выбор [2]: "
+    echo "  1) llama3.2-vision (11B) - от Meta, надёжный универсальный выбор (~10 ГБ ОЗУ)"
+    echo "  2) qwen2.5vl:7b - легче и часто точнее на бенчмарках (~6 ГБ ОЗУ)"
+    echo "  3) moondream - совсем лёгкая и быстрая, слабее качеством - для слабого железа (~3 ГБ ОЗУ)"
+    printf "Выбор [%s — рекомендуется для вашей системы]: " "$vision_rec"
     read -r vision_choice </dev/tty
-    case "${vision_choice:-2}" in
+    case "${vision_choice:-$vision_rec}" in
         1) chosen_vision="llama3.2-vision" ;;
         3) chosen_vision="moondream" ;;
         *) chosen_vision="qwen2.5vl:7b" ;;
