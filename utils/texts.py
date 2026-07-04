@@ -89,6 +89,7 @@ _TEXTS = {
         ),
         "admin_current": "👑 Current administrator ID: <code>{admin_id}</code>\nTransfer: /admin &lt;user_id&gt;",
         "admin_usage": "Usage: /admin &lt;telegram user id&gt;",
+        "admin_claim_private": "Adminship can only be claimed in a private chat with the bot.",
         "admin_env_locked": (
             "The administrator is set in .env (ADMIN_USER_ID / ALLOWED_USER_IDS) - "
             "change it there or via the configurator on the server."
@@ -213,6 +214,7 @@ _TEXTS = {
         ),
         "admin_current": "👑 Текущий администратор: <code>{admin_id}</code>\nПередать права: /admin &lt;id&gt;",
         "admin_usage": "Использование: /admin &lt;telegram id пользователя&gt;",
+        "admin_claim_private": "Стать администратором можно только в личном чате с ботом.",
         "admin_env_locked": (
             "Администратор задан в настройках сервера (.env: ADMIN_USER_ID / ALLOWED_USER_IDS) — "
             "изменить его можно там или через конфигуратор."

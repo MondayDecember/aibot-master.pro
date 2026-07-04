@@ -70,6 +70,11 @@ async def cmd_admin(message: Message, command: CommandObject):
     user_id = message.from_user.id
 
     if current is None:
+        # Claiming is private-chat only: in a group ANY member could send
+        # /admin and grab adminship before the actual owner does
+        if message.chat.type != "private":
+            await message.answer(t("admin_claim_private"))
+            return
         await set_admin_id(user_id)
         await message.answer(t("admin_claimed"))
         return
