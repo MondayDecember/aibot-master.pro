@@ -15,7 +15,7 @@ from utils.reminders import parse_reminder, format_due
 from utils.texts import t
 from utils.tts_helper import synthesize_speech
 from utils.web_search import gather_web_context
-from db.database import get_history, add_message, add_reminder, get_user_model, get_user_persona
+from db.database import get_history, add_message, add_reminder, get_user_model, get_user_persona, get_voice_pref
 
 logger = logging.getLogger(__name__)
 
@@ -169,6 +169,11 @@ async def process_queue(bot: Bot, redis_client):
                     user_model = await get_user_model(user_id)  # None = use TEXT_MODEL default
                     persona_key = await get_user_persona(user_id) or "default"
                     system_prompt = build_system_prompt(persona_key)
+                    # Voice in, voice out - but only when this user turned it
+                    # on (menu toggle). Off by default: a text+voice double of
+                    # the same reply annoyed people, and voice replaces text.
+                    voice_out = (VOICE_REPLIES and context_type == "voice"
+                                 and await get_voice_pref(user_id))
 
                     # Let the model decide for itself if it needs to search the web,
                     # and have it write the actual search query (skip for explicit
@@ -197,7 +202,9 @@ async def process_queue(bot: Bot, redis_client):
                     # and guarantees the final edit differs from the last
                     # streamed preview).
                     async with ChatActionSender.typing(bot=bot, chat_id=chat_id):
-                        if STREAM_RESPONSES and bot_message_id:
+                        # No streaming preview when the reply will be a voice
+                        # note - the text would appear and then vanish
+                        if STREAM_RESPONSES and bot_message_id and not voice_out:
                             response_text = ""
                             last_edit = time.monotonic()
                             async for delta in stream_response(
@@ -252,32 +259,35 @@ async def process_queue(bot: Bot, redis_client):
                     )
                     html_chunks = [_markdown_to_telegram_html(c) for c in chunks]
 
-                    if bot_message_id:
-                        try:
-                            await _send_or_edit_html(bot, chat_id, bot_message_id, html_chunks[0], edit=True)
-                        except Exception as edit_error:
-                            # Placeholder gone (user deleted it)? Don't lose
-                            # the generated reply - send it as a new message.
-                            logger.warning(f"Final edit failed, sending anew: {edit_error}")
-                            await _send_or_edit_html(bot, chat_id, bot_message_id, html_chunks[0], edit=False)
-                        for chunk in html_chunks[1:]:
-                            await _send_or_edit_html(bot, chat_id, bot_message_id, chunk, edit=False)
-                    else:
-                        for chunk in html_chunks:
-                            await _send_or_edit_html(bot, chat_id, bot_message_id, chunk, edit=False)
-
-                    # Voice in, voice out: reply with a synthesized voice note
-                    # too when the incoming message was itself a voice message.
-                    # `context_type` here is the *original* value from the job -
-                    # unlike final_context_type it doesn't flip to "web_search".
-                    if VOICE_REPLIES and context_type == "voice":
+                    # Voice reply REPLACES the text one (no duplicates); on
+                    # any synthesis/send failure we fall back to plain text.
+                    sent_as_voice = False
+                    if voice_out:
                         tts_text = _HTML_TAG_RE.sub("", " ".join(html_chunks))
                         audio = await synthesize_speech(tts_text)
                         if audio:
                             try:
                                 await bot.send_voice(chat_id, BufferedInputFile(audio, filename="reply.ogg"))
+                                sent_as_voice = True
+                                if bot_message_id:
+                                    await _try_edit(bot, chat_id, bot_message_id, t("voice_reply_note"))
                             except Exception as e:
                                 logger.warning(f"Failed to send voice reply: {e}")
+
+                    if not sent_as_voice:
+                        if bot_message_id:
+                            try:
+                                await _send_or_edit_html(bot, chat_id, bot_message_id, html_chunks[0], edit=True)
+                            except Exception as edit_error:
+                                # Placeholder gone (user deleted it)? Don't lose
+                                # the generated reply - send it as a new message.
+                                logger.warning(f"Final edit failed, sending anew: {edit_error}")
+                                await _send_or_edit_html(bot, chat_id, bot_message_id, html_chunks[0], edit=False)
+                            for chunk in html_chunks[1:]:
+                                await _send_or_edit_html(bot, chat_id, bot_message_id, chunk, edit=False)
+                        else:
+                            for chunk in html_chunks:
+                                await _send_or_edit_html(bot, chat_id, bot_message_id, chunk, edit=False)
                 except Exception as e:
                     logger.error(f"Error generating response: {e}")
                     await notify_admin(bot, e)

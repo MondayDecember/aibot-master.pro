@@ -33,6 +33,13 @@ async def init_db():
             await db.execute("ALTER TABLE user_settings ADD COLUMN persona TEXT")
         except aiosqlite.OperationalError:
             pass
+        try:
+            # Per-user voice-reply preference (0 = text replies, default).
+            await db.execute(
+                "ALTER TABLE user_settings ADD COLUMN voice_replies INTEGER DEFAULT 0"
+            )
+        except aiosqlite.OperationalError:
+            pass
         # get_history filters by user_id on every message - without an index
         # that's a full table scan that keeps growing with the history.
         await db.execute(
@@ -124,6 +131,24 @@ async def get_history(user_id: int, limit: int = 10) -> List[Dict[str, str]]:
         ) as cursor:
             rows = await cursor.fetchall()
             return [{"role": row[0], "content": row[1]} for row in reversed(rows)]
+
+async def get_voice_pref(user_id: int) -> bool:
+    """Per-user 'reply with voice to voice messages' preference (default off)."""
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute(
+            "SELECT voice_replies FROM user_settings WHERE user_id = ?", (user_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return bool(row[0]) if row and row[0] is not None else False
+
+async def set_voice_pref(user_id: int, enabled: bool):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute(
+            "INSERT INTO user_settings (user_id, voice_replies) VALUES (?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET voice_replies = excluded.voice_replies",
+            (user_id, int(enabled))
+        )
+        await db.commit()
 
 async def add_reminder(user_id: int, chat_id: int, text: str, due_ts: int) -> int:
     async with aiosqlite.connect(DB_NAME) as db:

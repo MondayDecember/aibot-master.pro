@@ -17,8 +17,14 @@ def test_trigger_detection():
     assert is_reminder_request("Напомнить в пятницу про сертификаты")
     assert is_reminder_request("remind me tomorrow to call")
     assert is_reminder_request("поставь напоминание на 9 утра")
+    # notes/alarms phrasings (real complaint: this one used to fall
+    # through to the LLM which claimed it can't set notes)
+    assert is_reminder_request("Поставь пожалуйста заметку на 16:00 чтобы я пошёл погулять")
+    assert is_reminder_request("запиши мне заметку купить хлеб вечером")
+    assert is_reminder_request("сделай будильник на 7 утра")
     # ordinary chat must not trigger
     assert not is_reminder_request("он мне напомнил про встречу")
+    assert not is_reminder_request("ты поставила напоминание, чтобы я пошёл погулять")
     assert not is_reminder_request("посоветуй фильм на вечер")
     assert not is_reminder_request("")
     assert not is_reminder_request(None)

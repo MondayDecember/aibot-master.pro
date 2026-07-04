@@ -99,6 +99,11 @@ _TEXTS = {
         "remind_deleted": "Reminder deleted.",
         "menu_reminders": "⏰ Reminders",
         "desc_reminders": "My reminders",
+        "menu_voice_on": "🔊 Voice replies: on",
+        "menu_voice_off": "🔇 Voice replies: off",
+        "voice_toggled_on": "Now I'll answer voice messages with voice.",
+        "voice_toggled_off": "Voice replies are off - text only.",
+        "voice_reply_note": "🔊 Answered with a voice message ↓",
         "admin_alert": "⚠️ Bot error:\n{error}",
         "admin_claimed": (
             "👑 You are now the bot administrator!\n"
@@ -241,6 +246,11 @@ _TEXTS = {
         "remind_deleted": "Напоминание удалено.",
         "menu_reminders": "⏰ Напоминания",
         "desc_reminders": "Мои напоминания",
+        "menu_voice_on": "🔊 Голосовые ответы: вкл",
+        "menu_voice_off": "🔇 Голосовые ответы: выкл",
+        "voice_toggled_on": "Теперь на голосовые отвечаю голосом.",
+        "voice_toggled_off": "Голосовые ответы выключены — отвечаю текстом.",
+        "voice_reply_note": "🔊 Ответил голосовым ↓",
         "admin_alert": "⚠️ Ошибка бота:\n{error}",
         "admin_claimed": (
             "👑 Теперь вы администратор бота!\n"

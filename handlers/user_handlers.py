@@ -7,8 +7,8 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 from aiogram.filters import CommandStart, Command, CommandObject
-from config import AVAILABLE_MODELS, TEXT_MODEL, PERSONAS, DB_PATH, IMAGEGEN_ENABLED
-from db.database import add_message, clear_history, get_user_model, set_user_model, get_user_persona, set_user_persona, get_stats, list_reminders, delete_reminder
+from config import AVAILABLE_MODELS, TEXT_MODEL, PERSONAS, DB_PATH, IMAGEGEN_ENABLED, VOICE_REPLIES
+from db.database import add_message, clear_history, get_user_model, set_user_model, get_user_persona, set_user_persona, get_stats, list_reminders, delete_reminder, get_voice_pref, set_voice_pref
 from task_queue.enqueue import enqueue_llm_job
 from utils.admin import get_admin_id, set_admin_id, admin_is_env_locked
 from utils.group import gate_group_message, history_key, should_chime_in, CHATTER_PROMPT
@@ -275,6 +275,17 @@ async def cb_remdel(callback: CallbackQuery):
     text, keyboard = await _reminders_view(callback.from_user.id)
     await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
 
+@router.callback_query(F.data == "nav:voice")
+async def cb_nav_voice(callback: CallbackQuery):
+    """Toggle the personal 'answer voice with voice' preference."""
+    new_state = not await get_voice_pref(callback.from_user.id)
+    await set_voice_pref(callback.from_user.id, new_state)
+    await callback.answer(t("voice_toggled_on" if new_state else "voice_toggled_off"))
+    await callback.message.edit_text(
+        t("menu_title"), parse_mode="HTML",
+        reply_markup=await _main_menu_keyboard(callback.from_user.id)
+    )
+
 @router.callback_query(F.data == "nav:reminders")
 async def cb_nav_reminders(callback: CallbackQuery):
     text, keyboard = await _reminders_view(callback.from_user.id)
@@ -283,6 +294,13 @@ async def cb_nav_reminders(callback: CallbackQuery):
 
 async def _main_menu_keyboard(user_id: int) -> InlineKeyboardMarkup:
     buttons = _base_menu_buttons()
+    # Personal voice-reply toggle (only when the TTS feature is enabled)
+    if VOICE_REPLIES:
+        voice_on = await get_voice_pref(user_id)
+        buttons.append([InlineKeyboardButton(
+            text=t("menu_voice_on" if voice_on else "menu_voice_off"),
+            callback_data="nav:voice",
+        )])
     # The stats button is shown only to the actual admin - everyone else
     # would just get an "admins only" alert when tapping it
     if await get_admin_id() == user_id:

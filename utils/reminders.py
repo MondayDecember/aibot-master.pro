@@ -20,10 +20,12 @@ from utils.texts import t
 logger = logging.getLogger(__name__)
 
 # What counts as a reminder request. Anchored to the start (plus the
-# "поставь/создай напоминание" phrasing anywhere) so ordinary chat like
-# "он мне напомнил про..." doesn't trigger it.
+# "поставь/запиши ... заметку/напоминание/будильник" phrasing anywhere) so
+# ordinary chat like "он мне напомнил про..." doesn't trigger it.
 _TRIGGER_RE = re.compile(
-    r"^\s*(напомни|напоминание\b|remind\b)|(поставь|создай|сделай)\s+напоминание",
+    r"^\s*(напомни|напоминание\b|remind\b)"
+    r"|(поставь|поставьте|создай|сделай|запиши|запишите)\s+(пожалуйста\s+)?(мне\s+)?"
+    r"(напоминание|напоминалку|заметку|заметочку|будильник)",
     re.IGNORECASE,
 )
 
