@@ -16,9 +16,12 @@ import os
 import threading
 
 import torch
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel
+
+load_dotenv()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -53,7 +56,14 @@ def _load_pipeline():
             pipe = AutoPipelineForText2Image.from_pretrained(
                 MODEL_ID, torch_dtype=torch.float32, safety_checker=None
             )
-            _pipe = pipe.to(device)
+            pipe = pipe.to(device)
+            # Cuts peak VRAM during the VAE decode step specifically (where
+            # OOMs were observed with SDXL-Turbo) by processing the latents
+            # in slices instead of all at once - small quality/speed cost,
+            # no effect on the UNet steps.
+            pipe.enable_vae_slicing()
+            pipe.enable_attention_slicing()
+            _pipe = pipe
             logger.info("Model loaded.")
     return _pipe
 
