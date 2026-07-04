@@ -15,6 +15,7 @@ from utils.llm_backend import list_installed_models
 from config import BOT_TOKEN, REDIS_URL, OLLAMA_API_BASE, TEXT_MODEL, VISION_MODEL, AVAILABLE_MODELS, IMAGEGEN_ENABLED
 from db.database import init_db
 from db.backup import backup_loop
+from utils.reminders import reminder_loop
 from task_queue.worker import process_queue
 
 # Handlers
@@ -76,6 +77,7 @@ async def setup_commands(bot: Bot):
         BotCommand(command="help", description=t("desc_help")),
         BotCommand(command="clear", description=t("desc_clear")),
         BotCommand(command="web", description=t("desc_web")),
+        BotCommand(command="reminders", description=t("desc_reminders")),
         BotCommand(command="model", description=t("desc_model")),
         BotCommand(command="persona", description=t("desc_persona")),
         BotCommand(command="stats", description=t("desc_stats")),
@@ -140,6 +142,7 @@ async def main():
     worker_task = asyncio.create_task(process_queue(bot, redis_client))
     backup_task = asyncio.create_task(backup_loop())
     heartbeat_task = asyncio.create_task(heartbeat_loop())
+    reminder_task = asyncio.create_task(reminder_loop(bot))
 
     # 6. Start Polling
     logger.info("Starting bot polling...")
@@ -151,6 +154,7 @@ async def main():
         worker_task.cancel()
         backup_task.cancel()
         heartbeat_task.cancel()
+        reminder_task.cancel()
         await redis_client.aclose()
         await bot.session.close()
         logger.info("Bot shut down gracefully.")

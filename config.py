@@ -98,6 +98,22 @@ LONG_TERM_MEMORY = os.getenv("LONG_TERM_MEMORY", "true").strip().lower() in ("1"
 SUMMARIZE_EVERY = int(os.getenv("SUMMARIZE_EVERY", "20"))
 SUMMARY_MAX_CHARS = int(os.getenv("SUMMARY_MAX_CHARS", "1500"))
 
+# Model for memory summaries and reminder parsing. Empty = the main
+# TEXT_MODEL. A small model (e.g. llama3.2:3b) makes background archiving
+# much faster and avoids swapping the big model out of RAM for it.
+SUMMARY_MODEL = os.getenv("SUMMARY_MODEL", "").strip()
+
+# Timezone for reminders and the bot's sense of "now" (IANA name like
+# Europe/Moscow). The LLM has no clock - the bot tells it the current date
+# and time with every request, in this timezone.
+TIMEZONE = os.getenv("TIMEZONE", "Europe/Moscow").strip() or "Europe/Moscow"
+try:
+    from zoneinfo import ZoneInfo
+    TZINFO = ZoneInfo(TIMEZONE)
+except Exception:
+    from datetime import timezone as _tz_fallback
+    TZINFO = _tz_fallback.utc
+
 TEXT_MODEL = os.getenv("TEXT_MODEL", "llama3")
 VISION_MODEL = os.getenv("VISION_MODEL", "llama3.2-vision")
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")

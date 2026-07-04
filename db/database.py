@@ -56,6 +56,21 @@ async def init_db():
                 value TEXT
             )
         ''')
+        # Reminders ("напомни завтра в 15:00 ..."). due_ts = unix timestamp;
+        # the scheduler in utils/reminders.py polls for due unsent rows.
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS reminders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                chat_id INTEGER NOT NULL,
+                text TEXT NOT NULL,
+                due_ts INTEGER NOT NULL,
+                sent INTEGER DEFAULT 0
+            )
+        ''')
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders(sent, due_ts)"
+        )
         await db.commit()
         logger.info("Database initialized.")
 
@@ -109,6 +124,52 @@ async def get_history(user_id: int, limit: int = 10) -> List[Dict[str, str]]:
         ) as cursor:
             rows = await cursor.fetchall()
             return [{"role": row[0], "content": row[1]} for row in reversed(rows)]
+
+async def add_reminder(user_id: int, chat_id: int, text: str, due_ts: int) -> int:
+    async with aiosqlite.connect(DB_NAME) as db:
+        cursor = await db.execute(
+            "INSERT INTO reminders (user_id, chat_id, text, due_ts) VALUES (?, ?, ?, ?)",
+            (user_id, chat_id, text, due_ts)
+        )
+        await db.commit()
+        return cursor.lastrowid
+
+async def get_due_reminders(now_ts: int) -> List[Dict]:
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute(
+            "SELECT id, user_id, chat_id, text, due_ts FROM reminders "
+            "WHERE sent = 0 AND due_ts <= ?", (now_ts,)
+        ) as cursor:
+            rows = await cursor.fetchall()
+    return [
+        {"id": r[0], "user_id": r[1], "chat_id": r[2], "text": r[3], "due_ts": r[4]}
+        for r in rows
+    ]
+
+async def list_reminders(user_id: int) -> List[Dict]:
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute(
+            "SELECT id, text, due_ts FROM reminders "
+            "WHERE user_id = ? AND sent = 0 ORDER BY due_ts", (user_id,)
+        ) as cursor:
+            rows = await cursor.fetchall()
+    return [{"id": r[0], "text": r[1], "due_ts": r[2]} for r in rows]
+
+async def delete_reminder(reminder_id: int, user_id: int) -> bool:
+    """Delete a pending reminder; the user_id check stops one user from
+    deleting another user's reminders via forged callback data."""
+    async with aiosqlite.connect(DB_NAME) as db:
+        cursor = await db.execute(
+            "DELETE FROM reminders WHERE id = ? AND user_id = ?",
+            (reminder_id, user_id)
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+async def mark_reminder_sent(reminder_id: int):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute("UPDATE reminders SET sent = 1 WHERE id = ?", (reminder_id,))
+        await db.commit()
 
 async def get_setting(key: str):
     async with aiosqlite.connect(DB_NAME) as db:

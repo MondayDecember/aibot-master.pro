@@ -8,10 +8,11 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 from aiogram.filters import CommandStart, Command, CommandObject
 from config import AVAILABLE_MODELS, TEXT_MODEL, PERSONAS, DB_PATH, IMAGEGEN_ENABLED
-from db.database import add_message, clear_history, get_user_model, set_user_model, get_user_persona, set_user_persona, get_stats
+from db.database import add_message, clear_history, get_user_model, set_user_model, get_user_persona, set_user_persona, get_stats, list_reminders, delete_reminder
 from task_queue.enqueue import enqueue_llm_job
 from utils.admin import get_admin_id, set_admin_id, admin_is_env_locked
 from utils.group import gate_group_message, history_key, should_chime_in, CHATTER_PROMPT
+from utils.reminders import is_reminder_request, format_due
 from utils.imagegen_client import generate_image
 from utils.llm_backend import list_installed_models
 from utils.texts import t
@@ -217,14 +218,68 @@ def _base_menu_buttons() -> list:
         [InlineKeyboardButton(text=t("menu_model"), callback_data="nav:model"),
          InlineKeyboardButton(text=t("menu_persona"), callback_data="nav:persona")],
         [InlineKeyboardButton(text=t("menu_web"), callback_data="nav:web"),
-         InlineKeyboardButton(text=t("menu_clear"), callback_data="nav:clear")],
+         InlineKeyboardButton(text=t("menu_reminders"), callback_data="nav:reminders")],
     ]
     # Only shown when the separate imagegen service is configured (see
     # imagegen/README.md) - otherwise it's just a button that always fails.
     if IMAGEGEN_ENABLED:
         buttons.append([InlineKeyboardButton(text=t("menu_imagine"), callback_data="nav:imagine")])
-    buttons.append([InlineKeyboardButton(text=t("menu_help"), callback_data="nav:help")])
+    buttons.append([InlineKeyboardButton(text=t("menu_clear"), callback_data="nav:clear"),
+                    InlineKeyboardButton(text=t("menu_help"), callback_data="nav:help")])
     return buttons
+
+def _reminders_keyboard(items) -> InlineKeyboardMarkup:
+    buttons = [
+        [InlineKeyboardButton(
+            text=f"❌ {format_due(r['due_ts'])} — {r['text'][:30]}",
+            callback_data=f"remdel:{r['id']}"
+        )]
+        for r in items
+    ]
+    buttons.append([InlineKeyboardButton(text=t("back"), callback_data="nav:main")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+async def _reminders_view(user_id: int):
+    items = await list_reminders(user_id)
+    if not items:
+        return t("remind_list_empty"), _back_keyboard()
+    return t("remind_list_title"), _reminders_keyboard(items)
+
+@router.message(Command("reminders"))
+async def cmd_reminders(message: Message):
+    text, keyboard = await _reminders_view(message.from_user.id)
+    await message.answer(text, parse_mode="HTML", reply_markup=keyboard)
+
+@router.message(Command("remind"))
+async def cmd_remind(message: Message, command: CommandObject, redis):
+    """Explicit reminder: /remind завтра в 15:00 проверить бэкапы"""
+    query = (command.args or "").strip()
+    if not query:
+        await message.answer(t("remind_usage"))
+        return
+    bot_message = await message.answer(t("remind_parsing"), parse_mode="HTML")
+    await enqueue_llm_job(
+        redis, message, bot_message,
+        prompt=query,
+        history_content="",
+        context_type="remind",
+        history_id=history_key(message),
+    )
+
+@router.callback_query(F.data.startswith("remdel:"))
+async def cb_remdel(callback: CallbackQuery):
+    reminder_id = callback.data.split(":", 1)[1]
+    if reminder_id.isdigit():
+        await delete_reminder(int(reminder_id), callback.from_user.id)
+    await callback.answer(t("remind_deleted"))
+    text, keyboard = await _reminders_view(callback.from_user.id)
+    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+
+@router.callback_query(F.data == "nav:reminders")
+async def cb_nav_reminders(callback: CallbackQuery):
+    text, keyboard = await _reminders_view(callback.from_user.id)
+    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+    await callback.answer()
 
 async def _main_menu_keyboard(user_id: int) -> InlineKeyboardMarkup:
     buttons = _base_menu_buttons()
@@ -415,6 +470,17 @@ async def handle_text(message: Message, redis, state: FSMContext):
     # Unknown commands ("/typo") fall through to this handler - don't feed
     # them to the LLM, silence is less confusing than a hallucinated answer
     if text.startswith("/"):
+        return
+    # "напомни завтра..." becomes a reminder, not a chat turn
+    if is_reminder_request(text):
+        bot_message = await message.answer(t("remind_parsing"), parse_mode="HTML")
+        await enqueue_llm_job(
+            redis, message, bot_message,
+            prompt=text,
+            history_content="",
+            context_type="remind",
+            history_id=history_key(message),
+        )
         return
     bot_message = await message.answer(t("thinking"), parse_mode="HTML")
     # In groups prefix the author's name so the shared history stays readable

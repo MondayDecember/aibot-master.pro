@@ -74,6 +74,7 @@ _TEXTS = {
             "• Documents (PDF / plain text) - I answer questions about the content\n\n"
             "<b>Commands</b>\n"
             "/web &lt;query&gt; - search the web\n"
+            "/reminders - my reminders (set one by just writing «remind me tomorrow at 10...»)\n"
             "/model - switch the text model\n"
             "/persona - change my personality\n"
             "/clear - clear conversation history\n"
@@ -82,6 +83,22 @@ _TEXTS = {
             "/admin - become the admin (when none is set) or transfer adminship\n\n"
             "In groups I answer @mentions and replies to my messages."
         ),
+        "remind_parsing": "<i>⏰ Setting up the reminder...</i>",
+        "remind_set": "⏰ Done! I'll remind you on {when}:\n«{text}»\n\nYour reminders: /reminders",
+        "remind_parse_failed": (
+            "Couldn't figure out when to remind you. Say the time explicitly, "
+            "e.g.: «remind me tomorrow at 15:00 to check the server»."
+        ),
+        "remind_usage": "Usage: /remind tomorrow at 15:00 check the backups",
+        "reminder_fire": "🔔 Reminder: {text}",
+        "remind_list_title": "⏰ <b>Your reminders</b>\nTap one to delete it:",
+        "remind_list_empty": (
+            "You have no active reminders. Just write or say: "
+            "«remind me tomorrow at 10 to call the clinic»."
+        ),
+        "remind_deleted": "Reminder deleted.",
+        "menu_reminders": "⏰ Reminders",
+        "desc_reminders": "My reminders",
         "admin_alert": "⚠️ Bot error:\n{error}",
         "admin_claimed": (
             "👑 You are now the bot administrator!\n"
@@ -199,6 +216,7 @@ _TEXTS = {
             "• Документы (PDF / текст) — отвечу по содержимому\n\n"
             "<b>Команды</b>\n"
             "/web &lt;запрос&gt; — поиск в интернете\n"
+            "/reminders — мои напоминания (поставить: просто напишите «напомни завтра в 10...»)\n"
             "/model — сменить модель\n"
             "/persona — сменить характер бота\n"
             "/clear — очистить историю диалога\n"
@@ -207,6 +225,22 @@ _TEXTS = {
             "/admin — стать администратором (если он не назначен) или передать права\n\n"
             "В группах отвечаю на @упоминания и реплаи на мои сообщения."
         ),
+        "remind_parsing": "<i>⏰ Ставлю напоминание...</i>",
+        "remind_set": "⏰ Готово! Напомню {when}:\n«{text}»\n\nВаши напоминания: /reminders",
+        "remind_parse_failed": (
+            "Не понял, когда напомнить. Скажите время явно, например: "
+            "«напомни завтра в 15:00 проверить сервер»."
+        ),
+        "remind_usage": "Использование: /remind завтра в 15:00 проверить бэкапы",
+        "reminder_fire": "🔔 Напоминаю: {text}",
+        "remind_list_title": "⏰ <b>Ваши напоминания</b>\nНажмите на напоминание, чтобы удалить:",
+        "remind_list_empty": (
+            "У вас нет активных напоминаний. Просто напишите или наговорите: "
+            "«напомни завтра в 10 позвонить в клинику»."
+        ),
+        "remind_deleted": "Напоминание удалено.",
+        "menu_reminders": "⏰ Напоминания",
+        "desc_reminders": "Мои напоминания",
         "admin_alert": "⚠️ Ошибка бота:\n{error}",
         "admin_claimed": (
             "👑 Теперь вы администратор бота!\n"

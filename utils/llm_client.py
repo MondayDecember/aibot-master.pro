@@ -1,6 +1,7 @@
 import logging
+from datetime import datetime
 from openai import AsyncOpenAI
-from config import OLLAMA_API_BASE, OLLAMA_API_KEY, TEXT_MODEL, VISION_MODEL, HISTORY_LIMIT, LONG_TERM_MEMORY
+from config import OLLAMA_API_BASE, OLLAMA_API_KEY, TEXT_MODEL, VISION_MODEL, HISTORY_LIMIT, LONG_TERM_MEMORY, TIMEZONE, TZINFO
 from db.database import get_history, get_memory
 from utils.texts import t
 
@@ -25,6 +26,13 @@ async def _build_request(prompt, user_id, context_type, model_override, system_p
     system_parts = []
     if system_prompt:
         system_parts.append(system_prompt)
+    # The model has no clock - tell it, so "what day is it", "how long
+    # until new year" and similar just work.
+    system_parts.append(
+        "Current date and time: "
+        + datetime.now(TZINFO).strftime("%A, %Y-%m-%d %H:%M")
+        + f" ({TIMEZONE})"
+    )
     if LONG_TERM_MEMORY:
         summary, _ = await get_memory(user_id)
         if summary:

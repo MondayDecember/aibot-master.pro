@@ -1,6 +1,6 @@
 import logging
 
-from config import TEXT_MODEL, LONG_TERM_MEMORY, SUMMARIZE_EVERY, SUMMARY_MAX_CHARS
+from config import TEXT_MODEL, SUMMARY_MODEL, LONG_TERM_MEMORY, SUMMARIZE_EVERY, SUMMARY_MAX_CHARS
 from db.database import get_memory, set_memory, count_messages, get_history
 from utils.llm_client import client
 
@@ -54,7 +54,7 @@ async def update_summary(history_id: int):
         },
     ]
     response = await client.chat.completions.create(
-        model=TEXT_MODEL, messages=messages, temperature=0.3
+        model=SUMMARY_MODEL or TEXT_MODEL, messages=messages, temperature=0.3
     )
     new_summary = (response.choices[0].message.content or "").strip()[:SUMMARY_MAX_CHARS]
     if new_summary:

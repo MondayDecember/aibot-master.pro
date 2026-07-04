@@ -1,4 +1,5 @@
 import asyncio
+import html
 import json
 import logging
 import re
@@ -10,10 +11,11 @@ from config import build_system_prompt, AUTO_WEB_SEARCH, STREAM_RESPONSES, STREA
 from utils.alerts import notify_admin
 from utils.llm_client import generate_response, stream_response, plan_web_search
 from utils.memory import needs_summary, update_summary
+from utils.reminders import parse_reminder, format_due
 from utils.texts import t
 from utils.tts_helper import synthesize_speech
 from utils.web_search import gather_web_context
-from db.database import get_history, add_message, get_user_model, get_user_persona
+from db.database import get_history, add_message, add_reminder, get_user_model, get_user_persona
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +138,28 @@ async def process_queue(bot: Bot, redis_client):
                 history_id = job_data.get("history_id", user_id)
                 prompt = job_data["prompt"]
                 bot_message_id = job_data.get("bot_message_id")
+
+                # Reminder request: extract "what" and "when" via the LLM
+                # (which is told the current date/time), store it, confirm.
+                # No chat reply is generated and nothing goes into history.
+                if context_type == "remind":
+                    try:
+                        parsed = await parse_reminder(prompt)
+                        if parsed:
+                            reminder_text, due_ts = parsed
+                            await add_reminder(user_id, chat_id, reminder_text, due_ts)
+                            await _edit_status(
+                                bot, chat_id, bot_message_id,
+                                t("remind_set", when=format_due(due_ts),
+                                  text=html.escape(reminder_text))
+                            )
+                        else:
+                            await _edit_status(bot, chat_id, bot_message_id, t("remind_parse_failed"))
+                    except Exception as e:
+                        logger.error(f"Reminder parsing failed: {e}")
+                        await notify_admin(bot, e)
+                        await _edit_status(bot, chat_id, bot_message_id, t("error_generic"))
+                    continue
                 
                 # Fetch DB History is now handled directly by the LLM client
                 

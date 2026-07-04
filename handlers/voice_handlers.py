@@ -3,6 +3,7 @@ from aiogram import Router, F
 from aiogram.types import Message
 from task_queue.enqueue import enqueue_llm_job
 from utils.group import gate_group_message, history_key
+from utils.reminders import is_reminder_request
 from utils.texts import t
 from utils.voice_helper import transcribe_voice
 
@@ -30,6 +31,17 @@ async def handle_voice(message: Message, redis):
     await bot_message.edit_text(
         t("heard", text=html.escape(transcription)), parse_mode="HTML"
     )
+
+    # "напомни завтра..." spoken aloud becomes a reminder, not a chat turn
+    if is_reminder_request(transcription):
+        await enqueue_llm_job(
+            redis, message, bot_message,
+            prompt=transcription,
+            history_content="",
+            context_type="remind",
+            history_id=history_key(message),
+        )
+        return
 
     await enqueue_llm_job(
         redis, message, bot_message,
