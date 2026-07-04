@@ -10,7 +10,7 @@ from aiogram.types import BotCommand
 from redis.asyncio import Redis
 
 from utils.texts import t
-from utils.ollama import list_installed_models
+from utils.llm_backend import list_installed_models
 
 from config import BOT_TOKEN, REDIS_URL, OLLAMA_API_BASE, TEXT_MODEL, VISION_MODEL, AVAILABLE_MODELS, IMAGEGEN_ENABLED
 from db.database import init_db
@@ -27,18 +27,21 @@ from middlewares.access import AccessMiddleware
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-async def check_ollama():
+async def check_llm_backend():
     """
-    Warn early if Ollama is unreachable or required models are missing, so the
-    user sees an actionable message in the logs instead of a traceback on the
-    first request. Non-fatal: Ollama may simply not be up yet.
+    Warn early if the LLM backend (Ollama, LM Studio, or any other
+    OpenAI-compatible server at OLLAMA_API_BASE) is unreachable or required
+    models are missing, so the user sees an actionable message in the logs
+    instead of a traceback on the first request. Non-fatal: it may simply
+    not be up yet.
     """
     names = await list_installed_models()
     if not names:
         logger.warning(
-            f"Ollama is not reachable at {OLLAMA_API_BASE}, or it has no models "
-            "installed. The bot will start, but it can't reply until Ollama is "
-            "up and has at least one model pulled."
+            f"No LLM backend reachable at {OLLAMA_API_BASE} (or it has no models "
+            "loaded) - checked via /v1/models. The bot will start, but it can't "
+            "reply until it's up. Ollama: 'ollama serve' + 'ollama pull <model>'. "
+            "LM Studio: enable the local server (port 1234 by default) and load a model."
         )
         return
     installed = set()
@@ -48,8 +51,8 @@ async def check_ollama():
     required = {TEXT_MODEL, VISION_MODEL} | set(AVAILABLE_MODELS.values())
     for model in sorted(required):
         if model not in installed and model.split(":")[0] not in installed:
-            logger.warning(f"Model '{model}' is not installed in Ollama. Run: ollama pull {model}")
-    logger.info(f"Ollama is reachable at {OLLAMA_API_BASE}")
+            logger.warning(f"Model '{model}' isn't loaded on the LLM backend at {OLLAMA_API_BASE}.")
+    logger.info(f"LLM backend reachable at {OLLAMA_API_BASE} with {len(names)} model(s) available.")
 
 # The container healthcheck looks at this file's mtime (see docker-compose.yml)
 HEARTBEAT_FILE = os.getenv(
@@ -94,8 +97,8 @@ async def main():
     # 1. Init Database
     await init_db()
 
-    # 2. Check Ollama (warns but does not abort)
-    await check_ollama()
+    # 2. Check the LLM backend (warns but does not abort)
+    await check_llm_backend()
 
     # 3. Init Redis Queue
     try:

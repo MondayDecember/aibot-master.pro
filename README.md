@@ -1,6 +1,6 @@
 # aibot-master
 
-Telegram-бот с локальной нейросетью ([Ollama](https://ollama.com)). Всё работает на вашем компьютере или сервере: без облачных API, без подписок и оплаты за токены. Переписка никуда не отправляется — обрабатывается и хранится только у вас.
+Telegram-бот с локальной нейросетью ([Ollama](https://ollama.com) или [LM Studio](https://lmstudio.ai) — любой сервер с OpenAI-совместимым API). Всё работает на вашем компьютере или сервере: без облачных API, без подписок и оплаты за токены. Переписка никуда не отправляется — обрабатывается и хранится только у вас.
 
 Собран на основе [m0wer/aibot](https://github.com/m0wer/aibot) с фичами из [mlloliveira/TelegramBot](https://github.com/mlloliveira/TelegramBot), значительно доработан.
 
@@ -102,7 +102,7 @@ bash configure.sh        # Linux/macOS
 |---|---|
 | `BOT_TOKEN` | токен от @BotFather — единственное обязательное поле |
 | `BOT_LANGUAGE` | язык сообщений бота: `ru` или `en` (на ответы нейросети не влияет — она отвечает на языке собеседника) |
-| `OLLAMA_API_BASE` | где искать Ollama: `http://host.docker.internal:11434/v1` — на вашей машине, `http://ollama:11434/v1` — в docker-контейнере |
+| `OLLAMA_API_BASE` | адрес LLM-сервера (несмотря на название, подходит любой OpenAI-совместимый — Ollama, LM Studio и т.п.): `http://host.docker.internal:11434/v1` — Ollama на вашей машине, `http://ollama:11434/v1` — Ollama в docker-контейнере, `http://host.docker.internal:1234/v1` — LM Studio (порт по умолчанию 1234, не 11434) |
 
 **Доступ и лимиты:**
 

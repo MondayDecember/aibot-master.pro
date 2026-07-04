@@ -13,7 +13,7 @@ from task_queue.enqueue import enqueue_llm_job
 from utils.admin import get_admin_id, set_admin_id, admin_is_env_locked
 from utils.group import gate_group_message, history_key, should_chime_in, CHATTER_PROMPT
 from utils.imagegen_client import generate_image
-from utils.ollama import list_installed_models
+from utils.llm_backend import list_installed_models
 from utils.texts import t
 from utils.web_search import gather_web_context
 
