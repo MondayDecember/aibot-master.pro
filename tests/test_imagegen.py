@@ -25,7 +25,8 @@ class _FakeSession:
     def __init__(self, response):
         self._response = response
 
-    def post(self, url, json=None):
+    def post(self, url, json=None, headers=None):
+        self.last_headers = headers
         return self._response
 
     async def __aenter__(self):
@@ -49,6 +50,14 @@ def test_returns_none_on_error_status(monkeypatch):
     _patch_session(monkeypatch, _FakeResponse(status=500, body=b"boom"))
     result = asyncio.run(imagegen_client.generate_image("a cat"))
     assert result is None
+
+
+def test_sends_api_key_header_when_configured(monkeypatch):
+    monkeypatch.setattr(imagegen_client, "IMAGEGEN_API_KEY", "secret123")
+    session = _FakeSession(_FakeResponse(status=200, body=b"ok"))
+    monkeypatch.setattr(imagegen_client.aiohttp, "ClientSession", lambda *a, **k: session)
+    asyncio.run(imagegen_client.generate_image("a cat"))
+    assert session.last_headers == {"X-Api-Key": "secret123"}
 
 
 def test_returns_none_when_service_unreachable(monkeypatch):

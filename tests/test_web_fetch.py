@@ -1,7 +1,58 @@
 import asyncio
 
 from utils import web_search
-from utils.web_search import _extract_page_text
+from utils.web_search import _extract_page_text, _is_public_url
+
+
+# --- SSRF guard ---
+
+def test_ssrf_guard_blocks_internal_targets(monkeypatch):
+    # Don't hit real DNS: map every hostname to whatever ip the test wants
+    def fake_getaddrinfo(host, port, **kwargs):
+        table = {
+            "example.com": "93.184.216.34",     # public
+            "ollama": "172.18.0.2",             # docker private
+            "redis": "10.0.0.5",                # private
+            "router.local": "192.168.1.1",      # private
+            "metadata": "169.254.169.254",      # cloud metadata (link-local)
+            "loop": "127.0.0.1",                # loopback
+        }
+        ip = table.get(host)
+        if ip is None:
+            raise __import__("socket").gaierror("no such host")
+        return [(2, 1, 6, "", (ip, port or 80))]
+
+    monkeypatch.setattr(web_search.socket, "getaddrinfo", fake_getaddrinfo)
+
+    assert web_search._is_public_url("https://example.com/page")
+    assert not web_search._is_public_url("http://ollama:11434/api/tags")
+    assert not web_search._is_public_url("http://redis:6379")
+    assert not web_search._is_public_url("http://router.local/admin")
+    assert not web_search._is_public_url("http://metadata/latest/meta-data/")
+    assert not web_search._is_public_url("http://loop:7861/generate")
+
+
+def test_fetch_page_blocks_before_connecting(monkeypatch):
+    # _fetch_page must reject a non-public URL WITHOUT ever calling session.get
+    monkeypatch.setattr(web_search, "_is_public_url", lambda url: False)
+
+    class _Boom:
+        def get(self, *a, **k):
+            raise AssertionError("session.get must not be called for a blocked URL")
+
+    result = asyncio.run(web_search._fetch_page(_Boom(), "http://ollama:11434", 100))
+    assert result is None
+
+
+def test_ssrf_guard_rejects_bad_schemes_and_literals():
+    # non-http schemes
+    assert not _is_public_url("file:///etc/passwd")
+    assert not _is_public_url("ftp://example.com/x")
+    assert not _is_public_url("not a url")
+    # raw private IP literals resolve to themselves
+    assert not _is_public_url("http://127.0.0.1:6379")
+    assert not _is_public_url("http://192.168.0.1/")
+    assert not _is_public_url("http://[::1]:8080/")
 
 _SAMPLE_HTML = """
 <html><head><title>Test</title><style>body{color:red}</style>

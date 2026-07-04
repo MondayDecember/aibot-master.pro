@@ -137,6 +137,11 @@ TTS_MAX_CHARS = int(os.getenv("TTS_MAX_CHARS", "1000"))
 # service). Off by default since most installs won't have it running.
 IMAGEGEN_ENABLED = os.getenv("IMAGEGEN_ENABLED", "false").strip().lower() in ("1", "true", "yes", "on")
 IMAGEGEN_API_BASE = os.getenv("IMAGEGEN_API_BASE", "http://host.docker.internal:7861")
+# Shared secret between the bot and the imagegen service. The service binds
+# 0.0.0.0 (host.docker.internal needs it), so without a key anyone on the
+# same network could POST /generate and burn the GPU. Must match the value
+# in imagegen/.env. Empty = no auth (only safe on an isolated host).
+IMAGEGEN_API_KEY = os.getenv("IMAGEGEN_API_KEY", "").strip()
 
 # Models selectable in Telegram via /model, e.g.:
 # MODEL_CHOICES=default=qwen2.5vl:7b,coder=qwen3-coder:30b,uncensored=hf.co/OBLITERATUS/Gemma-4-12B-OBLITERATED:Q4_K_M

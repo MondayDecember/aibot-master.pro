@@ -9,7 +9,9 @@ from utils.texts import t
 logger = logging.getLogger(__name__)
 
 
-async def _over_rate_limit(redis, user_id: int) -> bool:
+async def over_rate_limit(redis, user_id: int) -> bool:
+    """True when the user is over their per-minute quota. Shared by LLM jobs
+    and the direct-to-GPU /imagine path so both count against one limit."""
     if RATE_LIMIT_PER_MINUTE <= 0:
         return False
     key = f"rate:{user_id}"
@@ -20,6 +22,9 @@ async def _over_rate_limit(redis, user_id: int) -> bool:
     if count == 1 or await redis.ttl(key) < 0:
         await redis.expire(key, 60)
     return count > RATE_LIMIT_PER_MINUTE
+
+# Back-compat alias (tests and older imports use the underscore name).
+_over_rate_limit = over_rate_limit
 
 
 async def enqueue_llm_job(

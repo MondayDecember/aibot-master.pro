@@ -7,9 +7,9 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 from aiogram.filters import CommandStart, Command, CommandObject
-from config import AVAILABLE_MODELS, TEXT_MODEL, PERSONAS, DB_PATH, IMAGEGEN_ENABLED, VOICE_REPLIES
+from config import AVAILABLE_MODELS, TEXT_MODEL, PERSONAS, DB_PATH, IMAGEGEN_ENABLED, VOICE_REPLIES, RATE_LIMIT_PER_MINUTE
 from db.database import add_message, clear_history, get_user_model, set_user_model, get_user_persona, set_user_persona, get_stats, list_reminders, delete_reminder, get_voice_pref, set_voice_pref
-from task_queue.enqueue import enqueue_llm_job
+from task_queue.enqueue import enqueue_llm_job, over_rate_limit
 from utils.admin import get_admin_id, set_admin_id, admin_is_env_locked
 from utils.group import gate_group_message, history_key, should_chime_in, CHATTER_PROMPT
 from utils.reminders import is_reminder_request, format_due
@@ -411,7 +411,13 @@ async def cb_nav_imagine(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(t("imagine_prompt"), reply_markup=_back_keyboard())
     await callback.answer()
 
-async def _run_image_generation(message: Message, prompt: str):
+async def _run_image_generation(message: Message, redis, prompt: str):
+    # Image generation is GPU-heavy and serialized to one job at a time, so
+    # it needs the same per-user rate limit as LLM jobs - otherwise one user
+    # could flood /imagine and monopolize the GPU for everyone.
+    if await over_rate_limit(redis, message.from_user.id):
+        await message.answer(t("rate_limited", limit=RATE_LIMIT_PER_MINUTE))
+        return
     status = await message.answer(t("generating_image"), parse_mode="HTML")
     image_bytes = await generate_image(prompt)
     if not image_bytes:
@@ -424,7 +430,7 @@ async def _run_image_generation(message: Message, prompt: str):
     )
 
 @router.message(Command("imagine"))
-async def cmd_imagine(message: Message, command: CommandObject):
+async def cmd_imagine(message: Message, command: CommandObject, redis):
     """Handler for explicit image generation (see imagegen/README.md)."""
     if not IMAGEGEN_ENABLED:
         await message.answer(t("image_gen_unavailable"))
@@ -433,7 +439,7 @@ async def cmd_imagine(message: Message, command: CommandObject):
     if not prompt:
         await message.answer(t("imagine_usage"))
         return
-    await _run_image_generation(message, prompt)
+    await _run_image_generation(message, redis, prompt)
 
 @router.message(F.text)
 async def handle_text(message: Message, redis, state: FSMContext):
@@ -455,7 +461,7 @@ async def handle_text(message: Message, redis, state: FSMContext):
         if not prompt:
             await message.answer(t("imagine_usage"))
             return
-        await _run_image_generation(message, prompt)
+        await _run_image_generation(message, redis, prompt)
         return
 
     is_group = message.chat.type != "private"

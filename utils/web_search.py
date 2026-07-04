@@ -1,12 +1,45 @@
 import asyncio
+import ipaddress
 import logging
+import socket
+from urllib.parse import urlparse
 
 import aiohttp
+from yarl import URL
 from duckduckgo_search import DDGS
 
 from config import WEB_FETCH_PAGES, WEB_PAGE_MAX_CHARS
 
 logger = logging.getLogger(__name__)
+
+# SSRF guard. Result URLs (and their redirect targets) are attacker-influenced
+# - a malicious page or a "site:192.168.1.1" style query could point the
+# fetcher at internal services reachable from inside the docker network
+# (ollama, redis, the router admin panel, cloud metadata at 169.254.169.254).
+# We resolve the host and refuse any address that isn't publicly routable.
+_MAX_REDIRECTS = 3
+
+
+def _is_public_url(url: str) -> bool:
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        return False
+    try:
+        infos = socket.getaddrinfo(parsed.hostname, parsed.port or 80, proto=socket.IPPROTO_TCP)
+    except (socket.gaierror, UnicodeError, ValueError):
+        return False
+    if not infos:
+        return False
+    for *_, sockaddr in infos:
+        try:
+            ip = ipaddress.ip_address(sockaddr[0])
+        except ValueError:
+            return False
+        # Blocks private, loopback, link-local (incl. cloud metadata),
+        # reserved, multicast and unspecified addresses.
+        if not ip.is_global or ip.is_multicast:
+            return False
+    return True
 
 # Last line of defense against context-window overflow: WEB_FETCH_PAGES x
 # WEB_PAGE_MAX_CHARS can add up to ~4300 chars on its own (2 pages x 2000
@@ -50,17 +83,31 @@ def _extract_page_text(html: str, max_chars: int) -> str:
 
 async def _fetch_page(session: aiohttp.ClientSession, url: str, max_chars: int):
     """Download one result page and extract its text; None on any failure -
-    the caller falls back to the search snippet."""
+    the caller falls back to the search snippet. Redirects are followed
+    manually so every hop is re-checked against the SSRF guard (a public URL
+    that 302s to an internal one would otherwise slip through)."""
     try:
-        async with session.get(url, allow_redirects=True) as resp:
-            content_type = resp.headers.get("Content-Type", "")
-            if resp.status != 200 or ("html" not in content_type and "text" not in content_type):
+        for _ in range(_MAX_REDIRECTS + 1):
+            if not _is_public_url(url):
+                logger.warning(f"Blocked non-public URL in web fetch: {url}")
                 return None
-            raw = await resp.content.read(_MAX_PAGE_BYTES)
-        html = raw.decode(resp.charset or "utf-8", errors="replace")
-        # bs4 parsing is CPU-bound - keep it off the event loop
-        text = await asyncio.to_thread(_extract_page_text, html, max_chars)
-        return text or None
+            async with session.get(url, allow_redirects=False) as resp:
+                if resp.status in (301, 302, 303, 307, 308):
+                    location = resp.headers.get("Location")
+                    if not location:
+                        return None
+                    url = str(resp.url.join(URL(location)))
+                    continue
+                content_type = resp.headers.get("Content-Type", "")
+                if resp.status != 200 or ("html" not in content_type and "text" not in content_type):
+                    return None
+                raw = await resp.content.read(_MAX_PAGE_BYTES)
+                html = raw.decode(resp.charset or "utf-8", errors="replace")
+                # bs4 parsing is CPU-bound - keep it off the event loop
+                text = await asyncio.to_thread(_extract_page_text, html, max_chars)
+                return text or None
+        logger.warning(f"Too many redirects fetching {url}")
+        return None
     except Exception as e:
         logger.warning(f"Page fetch failed for {url}: {e}")
         return None

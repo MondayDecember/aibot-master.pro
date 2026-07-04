@@ -17,7 +17,7 @@ import threading
 
 import torch
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel
 
@@ -30,6 +30,9 @@ MODEL_ID = os.getenv("IMAGEGEN_MODEL", "stabilityai/sd-turbo")
 STEPS = int(os.getenv("IMAGEGEN_STEPS", "1"))
 GUIDANCE_SCALE = float(os.getenv("IMAGEGEN_GUIDANCE_SCALE", "0.0"))
 MAX_PROMPT_CHARS = int(os.getenv("IMAGEGEN_MAX_PROMPT_CHARS", "500"))
+# Shared secret; the service binds 0.0.0.0 so this is the only thing stopping
+# anyone on the network from POSTing /generate. Empty = no auth.
+API_KEY = os.getenv("IMAGEGEN_API_KEY", "").strip()
 
 app = FastAPI(title="aibot-imagegen")
 
@@ -79,7 +82,9 @@ async def health():
 
 
 @app.post("/generate")
-def generate(req: GenerateRequest):
+def generate(req: GenerateRequest, x_api_key: str = Header(default="")):
+    if API_KEY and x_api_key != API_KEY:
+        raise HTTPException(401, "Unauthorized")
     prompt = req.prompt.strip()
     if not prompt:
         raise HTTPException(400, "Empty prompt")
