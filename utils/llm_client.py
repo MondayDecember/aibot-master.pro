@@ -92,41 +92,47 @@ async def stream_response(
 
 async def plan_web_search(prompt: str, model_override: str = None) -> str | None:
     """
-    Ask the model whether answering `prompt` needs current/real-time
-    information from the web, and if so, what to actually search for.
-    Returns None when no search is needed, or a short search-engine-ready
-    query string.
+    Deprecated thin wrapper kept for compatibility - see route_message().
+    """
+    action, query = await route_message(prompt, model_override)
+    return query if action == "search" else None
 
-    The raw user question is usually a bad search query - question words
-    ("какая", "what", "how") and a trailing "?" make search engines latch
-    onto the wrong part of the sentence (e.g. "какая сейчас погода в
-    Томске?" returned dictionary/grammar pages about the word "какая"
-    instead of anything about Tomsk's weather). So the model is asked to
-    rewrite the question into plain keywords in the same pass as the
-    yes/no decision, instead of the raw prompt being used as the query.
+_ROUTER_SYSTEM = (
+    "You are the intent router of a telegram assistant. Look at the user's "
+    "next message and decide what it needs. Reply with exactly ONE of:\n"
+    "REMIND - the user ASKS to be reminded of something, or to set a "
+    "reminder / note / alarm for later, in any phrasing (\"напомни...\", "
+    "\"поставь заметку...\", \"сделай пометку чтоб я не забыл...\", \"не дай "
+    "мне забыть...\", \"remind me...\"). Only actual requests count - "
+    "statements ABOUT reminders are not requests.\n"
+    "SEARCH: <query> - answering needs current or real-time information "
+    "from the web (news, prices, weather, sports scores, recent releases, "
+    "live events, facts that change over time). The query must be plain "
+    "keywords a search engine understands well - no question words, no "
+    "question mark - in the same language as the user's message.\n"
+    "NO - anything else: general knowledge, coding help, conversation.\n"
+    "Reply with only REMIND, SEARCH: <query>, or NO."
+)
 
+async def route_message(prompt: str, model_override: str = None):
+    """
+    One cheap classification pass per message deciding what it needs:
+      ("remind", None)  - create a reminder (catches phrasings the fast
+                          keyword regex in utils/reminders.py missed)
+      ("search", query) - web search, with the question rewritten into
+                          search-engine keywords (the raw question is a bad
+                          query: "какая сейчас погода в Томске?" used to
+                          return grammar pages about the word "какая")
+      ("none", None)    - just answer normally
     Uses `model_override` when given so this runs on the same model that
     will generate the answer (avoids swapping two different models in/out
-    of Ollama for a single message).
+    of Ollama for a single message). Any error degrades to ("none", None).
     """
     try:
         response = await client.chat.completions.create(
             model=model_override or TEXT_MODEL,
             messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "Decide whether answering the user's next message requires "
-                        "searching the web for current or real-time information (news, prices, "
-                        "weather, sports scores, recent releases, live events, facts that change "
-                        "over time, etc.). General knowledge, coding help, and conversation do not "
-                        "need a search.\n"
-                        "If no search is needed, reply with exactly: NO\n"
-                        "If a search is needed, reply with: YES: <search query>\n"
-                        "The query must be plain keywords a search engine understands well - no "
-                        "question words, no question mark - in the same language as the user's message."
-                    )
-                },
+                {"role": "system", "content": _ROUTER_SYSTEM},
                 {"role": "user", "content": prompt}
             ],
             temperature=0,
@@ -140,10 +146,14 @@ async def plan_web_search(prompt: str, model_override: str = None) -> str | None
             max_tokens=500
         )
         answer = (response.choices[0].message.content or "").strip()
-        if not answer.upper().startswith("YES"):
-            return None
-        _, _, query = answer.partition(":")
-        return query.strip() or prompt
+        upper = answer.upper()
+        if upper.startswith("REMIND"):
+            return "remind", None
+        # YES: kept for models that answer in the old pre-router format
+        if upper.startswith("SEARCH") or upper.startswith("YES"):
+            _, _, query = answer.partition(":")
+            return "search", (query.strip() or prompt)
+        return "none", None
     except Exception as e:
-        logger.error(f"Web search planning error: {e}")
-        return None
+        logger.error(f"Message routing error: {e}")
+        return "none", None

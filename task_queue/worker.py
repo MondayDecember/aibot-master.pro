@@ -9,7 +9,7 @@ from aiogram.types import BufferedInputFile
 from aiogram.utils.chat_action import ChatActionSender
 from config import build_system_prompt, AUTO_WEB_SEARCH, STREAM_RESPONSES, STREAM_EDIT_INTERVAL, VOICE_REPLIES
 from utils.alerts import notify_admin
-from utils.llm_client import generate_response, stream_response, plan_web_search
+from utils.llm_client import generate_response, stream_response, route_message
 from utils.memory import needs_summary, update_summary
 from utils.reminders import parse_reminder, format_due
 from utils.texts import t
@@ -175,13 +175,33 @@ async def process_queue(bot: Bot, redis_client):
                     voice_out = (VOICE_REPLIES and context_type == "voice"
                                  and await get_voice_pref(user_id))
 
-                    # Let the model decide for itself if it needs to search the web,
-                    # and have it write the actual search query (skip for explicit
-                    # /web calls and non-text prompts like vision) - the raw
-                    # question is often a bad search query on its own.
+                    # One classification pass: does this message ask for a
+                    # reminder (any phrasing the fast regex missed), need a
+                    # web search (with a rewritten keyword query), or is it
+                    # normal chat? Skipped for explicit /web calls and
+                    # non-text prompts like vision.
                     if AUTO_WEB_SEARCH and context_type in ("text", "voice") and isinstance(prompt, str):
-                        search_query = await plan_web_search(prompt, model_override=user_model)
-                        if search_query:
+                        action, search_query = await route_message(prompt, model_override=user_model)
+
+                        if action == "remind":
+                            # Reminder phrased freely ("сделай пометку чтоб я
+                            # не забыл...") - understood by meaning, not by
+                            # keywords. Handled like an explicit reminder: no
+                            # chat reply, nothing goes into history.
+                            parsed = await parse_reminder(prompt)
+                            if parsed:
+                                reminder_text, due_ts = parsed
+                                await add_reminder(user_id, chat_id, reminder_text, due_ts)
+                                await _edit_status(
+                                    bot, chat_id, bot_message_id,
+                                    t("remind_set", when=format_due(due_ts),
+                                      text=html.escape(reminder_text))
+                                )
+                            else:
+                                await _edit_status(bot, chat_id, bot_message_id, t("remind_parse_failed"))
+                            continue
+
+                        if action == "search" and search_query:
                             if bot_message_id:
                                 await _edit_status(bot, chat_id, bot_message_id, t("searching"))
                             search_results = await gather_web_context(search_query)
