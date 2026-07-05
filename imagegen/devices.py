@@ -5,6 +5,26 @@ heavy GPU stack installed (app.py imports torch at module load).
 """
 
 
+def pick_backend(requested: str, cuda_available: bool, dml_available: bool) -> str:
+    """Resolve the IMAGEGEN_BACKEND setting into a concrete backend.
+
+    - "cuda" / "directml" / "cpu" -> that backend, as asked (even if the
+      probe says it's unavailable - the user overrode it on purpose, and a
+      clear load error beats silently running somewhere else).
+    - "" / "auto" -> CUDA if an NVIDIA GPU is present (fast, native), else
+      DirectML if available (AMD/Intel/NVIDIA on Windows), else CPU (slow
+      but always works).
+    """
+    requested = (requested or "auto").strip().lower()
+    if requested in ("cuda", "directml", "cpu"):
+        return requested
+    if cuda_available:
+        return "cuda"
+    if dml_available:
+        return "directml"
+    return "cpu"
+
+
 def parse_devices(env: str, count: int) -> list:
     """Resolve the IMAGEGEN_DEVICES setting into a list of device indices.
 

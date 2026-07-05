@@ -1,0 +1,11 @@
+# NVIDIA / CUDA path (fast native GPU). torch itself is installed separately
+# by install.ps1 from the CUDA wheel index (--index-url .../cuXXX), because
+# the CUDA build isn't on PyPI. These are the rest, unpinned from the old
+# torch-directml==2.4.1 constraint so they work with a modern CUDA torch.
+diffusers>=0.31.0
+transformers>=4.46.0
+accelerate>=0.34.0
+fastapi>=0.110.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.0.0
+python-dotenv>=1.0.1

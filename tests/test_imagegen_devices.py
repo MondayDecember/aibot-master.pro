@@ -1,4 +1,20 @@
-from imagegen.devices import parse_devices
+from imagegen.devices import parse_devices, pick_backend
+
+
+def test_backend_explicit_override_wins():
+    # forced backend is honoured even if the probe disagrees
+    assert pick_backend("cuda", cuda_available=False, dml_available=False) == "cuda"
+    assert pick_backend("directml", cuda_available=True, dml_available=False) == "directml"
+    assert pick_backend("cpu", cuda_available=True, dml_available=True) == "cpu"
+
+
+def test_backend_auto_prefers_cuda_then_dml_then_cpu():
+    assert pick_backend("auto", cuda_available=True, dml_available=True) == "cuda"
+    assert pick_backend("", cuda_available=True, dml_available=False) == "cuda"
+    assert pick_backend("auto", cuda_available=False, dml_available=True) == "directml"
+    assert pick_backend("auto", cuda_available=False, dml_available=False) == "cpu"
+    # unknown value falls back to auto behaviour
+    assert pick_backend("nonsense", cuda_available=True, dml_available=False) == "cuda"
 
 
 def test_default_is_single_card():

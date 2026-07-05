@@ -6,11 +6,14 @@ A small local HTTP service that turns text prompts into images (`/imagine <promp
 
 GPU passthrough into Windows Docker Desktop containers isn't reliably available for either DirectML or CUDA on this kind of setup (`docker run --gpus all ...` fails with *"WSL environment detected but no adapters were found"* even when the same GPU works fine for natively-running apps). That's also why Ollama itself runs natively on the host here instead of in its optional docker profile. Same story for this service.
 
-## Why DirectML instead of CUDA/ROCm
+## Backends: CUDA (NVIDIA) vs DirectML (anything)
 
-[DirectML](https://github.com/microsoft/DirectML) sits on top of DirectX 12, so the *same* code runs on AMD, NVIDIA, and Intel GPUs on Windows. Useful specifically because the GPU in this box is expected to change (AMD Radeon now, an NVIDIA Tesla P100 later) — one implementation instead of a CUDA path and a ROCm path to maintain.
+The service supports two compute backends, chosen by `IMAGEGEN_BACKEND` (default `auto`):
 
-Trade-off: DirectML is generally a bit slower than a card's native API (CUDA on NVIDIA, ROCm on AMD/Linux) for the same GPU. On an AMD Radeon RX 7800 XT, SD-Turbo (1 step) generates a 512x512 image in **~5 seconds** — plenty fast for a Telegram bot.
+- **CUDA** — native NVIDIA path. Much faster on NVIDIA cards, and runs the model in fp16 (half the VRAM, roughly double the speed). Use this on any GeForce/RTX card, including the RTX 50-series. Needs a CUDA build of torch — `install.ps1` installs it for you from the CUDA wheel index.
+- **DirectML** — [DirectML](https://github.com/microsoft/DirectML) sits on top of DirectX 12, so the *same* code runs on **AMD, Intel, and NVIDIA** GPUs on Windows. Portable but slower than a card's native API. On an AMD Radeon RX 7800 XT, SD-Turbo (1 step) generates a 512x512 image in ~5 seconds.
+
+`auto` picks CUDA if an NVIDIA GPU is present, otherwise DirectML, otherwise CPU. Force a specific one with `IMAGEGEN_BACKEND=cuda|directml|cpu`.
 
 ## Setup
 
@@ -19,6 +22,10 @@ cd imagegen
 .\install.ps1
 .\run.ps1
 ```
+
+`install.ps1` detects an NVIDIA GPU and offers the CUDA path (recommended on NVIDIA); on AMD/Intel it uses DirectML. It writes the chosen `IMAGEGEN_BACKEND` into `imagegen/.env`. For the RTX 50-series (Blackwell) pick the **cu128** wheels when asked; for 40/30-series **cu124** also works.
+
+Check what it picked: open `http://localhost:7861/health` — it reports `"backend"` and `"devices"`.
 
 First request downloads the model (~1 GB for SD-Turbo, cached in `%USERPROFILE%\.cache\huggingface` afterwards). The service listens on `http://localhost:7861`; the bot (in Docker) reaches it at `http://host.docker.internal:7861`, same pattern as `OLLAMA_API_BASE`.
 
@@ -34,6 +41,7 @@ Environment variables (set before running `run.ps1`, or edit `app.py`):
 | `IMAGEGEN_STEPS` | `1` | Inference steps. `sd-turbo`/`sdxl-turbo` are distilled for 1-4 steps - more steps mostly just costs time with these models. |
 | `IMAGEGEN_GUIDANCE_SCALE` | `0.0` | Turbo models are trained for guidance-free (CFG=0) generation. |
 | `IMAGEGEN_MAX_PROMPT_CHARS` | `500` | Prompts longer than this are truncated. |
+| `IMAGEGEN_BACKEND` | `auto` | `auto` (CUDA on NVIDIA, else DirectML, else CPU) or force `cuda` / `directml` / `cpu`. |
 | `IMAGEGEN_DEVICES` | `` (card 0) | Which GPUs to use: empty = card 0, `all` = every detected card, `0,1` = specific ones. |
 | `IMAGEGEN_API_KEY` | `` (no auth) | Shared secret; must match `IMAGEGEN_API_KEY` in the bot's `.env`. |
 

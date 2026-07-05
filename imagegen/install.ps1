@@ -7,6 +7,23 @@
 # "WSL environment detected but no adapters were found" even though the
 # same GPU works fine for natively-running apps). Same reason Ollama itself
 # runs natively here instead of in docker - see the main README.
+function Set-BackendEnv {
+    # Persist the chosen backend into imagegen/.env so run.ps1 uses it. Adds
+    # or replaces the IMAGEGEN_BACKEND line without touching anything else.
+    param([string]$Backend)
+    if (-not (Test-Path .env)) {
+        if (Test-Path .env.example) { Copy-Item .env.example .env } else { New-Item -ItemType File .env | Out-Null }
+    }
+    $lines = Get-Content .env
+    if ($lines -match "^\s*IMAGEGEN_BACKEND=") {
+        $lines = $lines -replace "^\s*IMAGEGEN_BACKEND=.*", "IMAGEGEN_BACKEND=$Backend"
+        $lines | Set-Content .env
+    } else {
+        Add-Content .env "IMAGEGEN_BACKEND=$Backend"
+    }
+    Write-Host "Записал IMAGEGEN_BACKEND=$Backend в imagegen\.env"
+}
+
 function Install-ImageGen {
     $ErrorActionPreference = "Stop"
 
@@ -31,8 +48,37 @@ function Install-ImageGen {
         py $pyCmd -m venv venv
     }
     .\venv\Scripts\python.exe -m pip install -q --upgrade pip
-    Write-Host "Ставлю зависимости (torch скачается - несколько сотен МБ)..."
-    .\venv\Scripts\python.exe -m pip install -q -r requirements.txt
+
+    # Detect an NVIDIA GPU and offer the fast native CUDA path; otherwise the
+    # portable DirectML path (AMD / Intel / older NVIDIA on Windows).
+    $hasNvidia = $false
+    if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) { $hasNvidia = $true }
+
+    if ($hasNvidia) {
+        Write-Host "Обнаружена видеокарта NVIDIA." -ForegroundColor Green
+        Write-Host "  1) CUDA - родной ускоренный путь для NVIDIA (рекомендуется, быстрее)"
+        Write-Host "  2) DirectML - универсальный путь (медленнее на NVIDIA)"
+        $backend = Read-Host "Выбор [1]"
+        if (-not $backend) { $backend = "1" }
+    } else {
+        Write-Host "Видеокарта NVIDIA не найдена - ставлю DirectML (AMD / Intel / CPU)."
+        $backend = "2"
+    }
+
+    if ($backend -eq "1") {
+        # CUDA 12.8 wheels cover the RTX 50-series (Blackwell) and older 40/30
+        # series alike. Change cu128 to match an older CUDA if needed.
+        $cuda = Read-Host "Версия CUDA-колёс: cu128 (50-й ряд/новые), cu124 (40/30) [cu128]"
+        if (-not $cuda) { $cuda = "cu128" }
+        Write-Host "Ставлю torch (CUDA $cuda) - это несколько ГБ, займёт время..."
+        .\venv\Scripts\python.exe -m pip install torch --index-url "https://download.pytorch.org/whl/$cuda"
+        .\venv\Scripts\python.exe -m pip install -q -r requirements-cuda.txt
+        Set-BackendEnv "cuda"
+    } else {
+        Write-Host "Ставлю зависимости DirectML (torch скачается - несколько сотен МБ)..."
+        .\venv\Scripts\python.exe -m pip install -q -r requirements.txt
+        Set-BackendEnv "directml"
+    }
 
     Write-Host ""
     Write-Host "=== Готово ===" -ForegroundColor Green
