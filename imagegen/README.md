@@ -34,5 +34,11 @@ Environment variables (set before running `run.ps1`, or edit `app.py`):
 | `IMAGEGEN_STEPS` | `1` | Inference steps. `sd-turbo`/`sdxl-turbo` are distilled for 1-4 steps - more steps mostly just costs time with these models. |
 | `IMAGEGEN_GUIDANCE_SCALE` | `0.0` | Turbo models are trained for guidance-free (CFG=0) generation. |
 | `IMAGEGEN_MAX_PROMPT_CHARS` | `500` | Prompts longer than this are truncated. |
+| `IMAGEGEN_DEVICES` | `` (card 0) | Which GPUs to use: empty = card 0, `all` = every detected card, `0,1` = specific ones. |
+| `IMAGEGEN_API_KEY` | `` (no auth) | Shared secret; must match `IMAGEGEN_API_KEY` in the bot's `.env`. |
 
-In the bot's own `.env`, see `IMAGEGEN_ENABLED` / `IMAGEGEN_API_BASE`.
+In the bot's own `.env`, see `IMAGEGEN_ENABLED` / `IMAGEGEN_API_BASE` / `IMAGEGEN_API_KEY`.
+
+## Multiple GPUs
+
+Set `IMAGEGEN_DEVICES=all` (or a list like `0,1`) to spread work across several cards. Each card loads its own copy of the model and handles one generation at a time; the service round-robins requests across them, so N cards serve N images **simultaneously**. This is throughput, not latency — a single image still runs on one card at its normal speed (diffusion isn't split across GPUs here). Useful when several people use `/imagine` at once. Note each card needs enough VRAM for its own full copy of the model.
