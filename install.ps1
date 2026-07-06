@@ -187,17 +187,27 @@ function Invoke-ChangeToken {
 function Invoke-Remove {
     Write-Host ""
     Write-Host "!!! ПОЛНОЕ УДАЛЕНИЕ !!!" -ForegroundColor Red
-    Write-Host "Будет удалено АБСОЛЮТНО ВСЁ и БЕЗВОЗВРАТНО:"
-    Write-Host "  • контейнеры бота, Redis и Ollama;"
-    Write-Host "  • собранный docker-образ и тома (в т.ч. скачанные модели Ollama);"
+    Write-Host "Будет удалено БЕЗВОЗВРАТНО:"
+    Write-Host "  • контейнеры бота и Redis (и Ollama, если она в docker);"
+    Write-Host "  • собранный docker-образ бота;"
     Write-Host "  • история всех диалогов и напоминания;"
     Write-Host "  • настройки (.env) и все резервные копии в data\backups."
-    $confirm = Read-Host "Точно удалить всё? Впишите 'delete' для подтверждения"
+    Write-Host "Скачанные модели Ollama по умолчанию НЕ трогаются (чтобы не качать заново)."
+    Write-Host "Саму программу Ollama установщик не удаляет — только docker-контейнер."
+    $confirm = Read-Host "Точно удалить? Впишите 'delete' для подтверждения"
     if ($confirm -ne "delete") { Write-Host "Отменено — ничего не тронуто."; return }
 
-    Write-Host "Останавливаю и удаляю контейнеры, тома и собранный образ..."
-    docker compose down -v --rmi local *> $null
-    if ($LASTEXITCODE -ne 0) { docker compose down -v *> $null }
+    $delModels = Read-Host "Удалить ТАКЖЕ скачанные модели Ollama (только если она в docker; несколько ГБ)? y/n [n]"
+
+    Write-Host "Останавливаю и удаляю контейнеры и образ..."
+    if ($delModels -eq "y") {
+        docker compose down -v --rmi local *> $null
+        if ($LASTEXITCODE -ne 0) { docker compose down -v *> $null }
+        Write-Host "Модели Ollama в docker тоже удалены."
+    } else {
+        docker compose down --rmi local *> $null
+        if ($LASTEXITCODE -ne 0) { docker compose down *> $null }
+    }
     Remove-Item -Recurse -Force data, .env -ErrorAction SilentlyContinue
     Write-Host "Бот и все данные удалены." -ForegroundColor Green
 

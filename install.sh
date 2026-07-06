@@ -213,17 +213,27 @@ do_change_token() {
 do_remove() {
     echo ""
     echo "!!! ПОЛНОЕ УДАЛЕНИЕ !!!"
-    echo "Будет удалено АБСОЛЮТНО ВСЁ и БЕЗВОЗВРАТНО:"
-    echo "  • контейнеры бота, Redis и Ollama;"
-    echo "  • собранный docker-образ и тома (в т.ч. скачанные модели Ollama);"
+    echo "Будет удалено БЕЗВОЗВРАТНО:"
+    echo "  • контейнеры бота и Redis (и Ollama, если она в docker);"
+    echo "  • собранный docker-образ бота;"
     echo "  • история всех диалогов и напоминания;"
     echo "  • настройки (.env) и все резервные копии в data/backups."
-    printf "Точно удалить всё? Впишите 'delete' для подтверждения: "
+    echo "Скачанные модели Ollama по умолчанию НЕ трогаются (чтобы не качать заново)."
+    echo "Саму программу Ollama установщик не удаляет — только docker-контейнер."
+    printf "Точно удалить? Впишите 'delete' для подтверждения: "
     read -r confirm </dev/tty
     [ "$confirm" = "delete" ] || { echo "Отменено — ничего не тронуто."; return; }
 
-    echo "Останавливаю и удаляю контейнеры, тома и собранный образ..."
-    docker compose down -v --rmi local 2>/dev/null || docker compose down -v 2>/dev/null || true
+    printf "Удалить ТАКЖЕ скачанные модели Ollama (только если она в docker; несколько ГБ)? y/n [n]: "
+    read -r delmodels </dev/tty
+
+    echo "Останавливаю и удаляю контейнеры и образ..."
+    if [ "${delmodels:-n}" = "y" ]; then
+        docker compose down -v --rmi local 2>/dev/null || docker compose down -v 2>/dev/null || true
+        echo "Модели Ollama в docker тоже удалены."
+    else
+        docker compose down --rmi local 2>/dev/null || docker compose down 2>/dev/null || true
+    fi
     rm -rf data .env
     echo "Бот и все данные удалены."
 
