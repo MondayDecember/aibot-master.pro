@@ -1,42 +1,31 @@
 #!/usr/bin/env bash
-# One-command installer for aibot-master (Linux/macOS).
+# Installer / manager for aibot-master (Linux/macOS).
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/MondayDecember/aibot-master.pro/main/install.sh | bash
 # Or from a cloned repo: bash install.sh
-set -euo pipefail
+# When the bot is already installed, this shows a menu (update / reinstall /
+# change token / remove) instead of installing again.
+set -uo pipefail
 
 REPO_URL="https://github.com/MondayDecember/aibot-master.pro.git"
 DIR="aibot-master"
 
-echo "=== Установка aibot-master ==="
-
-command -v docker >/dev/null 2>&1 || {
-    echo "Ошибка: Docker не установлен. См. https://docs.docker.com/engine/install/"
-    exit 1
-}
-docker compose version >/dev/null 2>&1 || {
-    echo "Ошибка: нужен Docker Compose v2 (команда 'docker compose')."
-    exit 1
-}
-
-# Clone unless the script is already running inside the repo
-if [ ! -f docker-compose.yml ]; then
-    command -v git >/dev/null 2>&1 || { echo "Ошибка: git не установлен."; exit 1; }
-    [ -d "$DIR" ] || git clone "$REPO_URL" "$DIR"
-    cd "$DIR"
-fi
-
-# The bot stores its sqlite db in ./data (bind-mounted into the container)
-mkdir -p data
-if [ -f bot_data.db ]; then
-    mv bot_data.db data/bot_data.db
-    echo "Перенёс bot_data.db со старого пути в data/."
-fi
-
 # portable in-place sed (GNU and BSD/macOS)
 sed_i() { sed -i.bak "$1" "$2" && rm -f "$2.bak"; }
 
-if [ ! -f .env ]; then
+require_docker() {
+    command -v docker >/dev/null 2>&1 || {
+        echo "Ошибка: Docker не установлен. См. https://docs.docker.com/engine/install/"
+        exit 1
+    }
+    docker compose version >/dev/null 2>&1 || {
+        echo "Ошибка: нужен Docker Compose v2 (команда 'docker compose')."
+        exit 1
+    }
+}
+
+# ---- .env creation wizard (fresh install only) --------------------------
+run_wizard() {
     cp .env.example .env
     printf "Введите BOT_TOKEN (получить у @BotFather; Enter = пропустить и ввести позже): "
     read -r token </dev/tty
@@ -44,7 +33,7 @@ if [ ! -f .env ]; then
         sed_i "s|^BOT_TOKEN=.*|BOT_TOKEN=${token}|" .env
     else
         echo "Токен пропущен — установка продолжится, бот запустится и будет ждать токена."
-        echo "Ввести позже: bash configure.sh (пункт 1) или впишите BOT_TOKEN в .env."
+        echo "Ввести позже: bash install.sh (пункт «Сменить токен») или bash configure.sh."
     fi
 
     echo ""
@@ -114,80 +103,179 @@ if [ ! -f .env ]; then
         *) chosen_vision="qwen2.5vl:7b" ;;
     esac
     sed_i "s|^VISION_MODEL=.*|VISION_MODEL=${chosen_vision}|" .env
-else
-    echo "Файл .env уже существует — оставляю как есть (настройки: bash configure.sh)."
-fi
+}
 
-# Use Ollama on the host if it's already running, otherwise run it in docker.
-# Only touch OLLAMA_API_BASE while it still points to a default location -
-# a custom value (e.g. a remote Ollama server) must be left alone.
-OLLAMA_SKIP=0
-if curl -sf http://localhost:11434/api/tags >/dev/null 2>&1; then
-    echo "Найдена Ollama на хосте (localhost:11434) — бот будет использовать её."
-    OLLAMA_IN_DOCKER=0
-else
-    echo ""
-    echo "Ollama на хосте не найдена (либо ещё не запустилась - проверьте, что она точно не работает)."
-    printf "Запустить Ollama в отдельном docker-контейнере и скачать в неё модели (несколько ГБ, займёт время и место на диске)? y/n [y]: "
-    read -r run_in_docker </dev/tty
-    if [ "${run_in_docker:-y}" = "n" ]; then
-        echo "Пропускаю. Установите Ollama сами (https://ollama.com) или укажите свой OLLAMA_API_BASE в .env, затем: docker compose up -d"
+# ---- launch containers + pull models ------------------------------------
+setup_ollama_and_launch() {
+    # Use Ollama on the host if it's already running, otherwise offer docker.
+    OLLAMA_SKIP=0
+    if curl -sf http://localhost:11434/api/tags >/dev/null 2>&1; then
+        echo "Найдена Ollama на хосте (localhost:11434) — бот будет использовать её."
         OLLAMA_IN_DOCKER=0
-        OLLAMA_SKIP=1
     else
-        OLLAMA_IN_DOCKER=1
-        api_base=$(grep -E "^OLLAMA_API_BASE=" .env || true)
-        if echo "$api_base" | grep -qE "host\.docker\.internal|localhost|127\.0\.0\.1"; then
-            sed_i "s|^OLLAMA_API_BASE=.*|OLLAMA_API_BASE=http://ollama:11434/v1|" .env
-        elif [ -n "$api_base" ] && ! echo "$api_base" | grep -q "//ollama:"; then
-            echo "В .env задан свой OLLAMA_API_BASE — оставляю его как есть."
+        echo ""
+        echo "Ollama на хосте не найдена (либо ещё не запустилась)."
+        printf "Запустить Ollama в docker-контейнере и скачать в неё модели (несколько ГБ)? y/n [y]: "
+        read -r run_in_docker </dev/tty
+        if [ "${run_in_docker:-y}" = "n" ]; then
+            echo "Пропускаю. Установите Ollama сами (https://ollama.com) или укажите OLLAMA_API_BASE в .env."
+            OLLAMA_IN_DOCKER=0
+            OLLAMA_SKIP=1
+        else
+            OLLAMA_IN_DOCKER=1
+            api_base=$(grep -E "^OLLAMA_API_BASE=" .env || true)
+            if echo "$api_base" | grep -qE "host\.docker\.internal|localhost|127\.0\.0\.1"; then
+                sed_i "s|^OLLAMA_API_BASE=.*|OLLAMA_API_BASE=http://ollama:11434/v1|" .env
+            elif [ -n "$api_base" ] && ! echo "$api_base" | grep -q "//ollama:"; then
+                echo "В .env задан свой OLLAMA_API_BASE — оставляю его как есть."
+            fi
+            grep -q "^COMPOSE_PROFILES=" .env || echo "COMPOSE_PROFILES=ollama" >> .env
         fi
-        # COMPOSE_PROFILES in .env makes plain 'docker compose up -d' include ollama
-        grep -q "^COMPOSE_PROFILES=" .env || echo "COMPOSE_PROFILES=ollama" >> .env
     fi
-fi
 
-if grep -q "^COMPOSE_FILE=" .env; then
-    # Auto-update mode: run from the prebuilt registry image, don't build
-    echo "Скачиваю готовый образ и запускаю контейнеры..."
+    launch_containers
+
+    TEXT_MODEL=$(grep -E "^TEXT_MODEL=" .env | cut -d= -f2- || true)
+    VISION_MODEL=$(grep -E "^VISION_MODEL=" .env | cut -d= -f2- || true)
+    TEXT_MODEL=${TEXT_MODEL:-llama3}
+    VISION_MODEL=${VISION_MODEL:-llama3.2-vision}
+
+    if [ "$OLLAMA_SKIP" = "1" ]; then
+        echo "Модели не скачаны - настройте Ollama и выполните: ollama pull $TEXT_MODEL && ollama pull $VISION_MODEL"
+    elif [ "$OLLAMA_IN_DOCKER" = "1" ]; then
+        echo "Жду запуска Ollama в контейнере..."
+        ready=0
+        for _ in $(seq 1 30); do
+            if docker compose exec ollama ollama list >/dev/null 2>&1; then ready=1; break; fi
+            sleep 2
+        done
+        if [ "$ready" != "1" ]; then
+            echo "Ollama в контейнере не отвечает. Скачайте модели вручную: docker compose exec ollama ollama pull $TEXT_MODEL"
+            return
+        fi
+        echo "Скачиваю модели (может занять много времени, они большие)..."
+        docker compose exec ollama ollama pull "$TEXT_MODEL"
+        docker compose exec ollama ollama pull "$VISION_MODEL"
+    else
+        echo "Убедитесь, что модели скачаны: ollama pull $TEXT_MODEL && ollama pull $VISION_MODEL"
+    fi
+}
+
+# Build+start, or pull+start in auto-update mode (COMPOSE_FILE set)
+launch_containers() {
+    if grep -q "^COMPOSE_FILE=" .env; then
+        echo "Скачиваю готовый образ и запускаю контейнеры..."
+        docker compose up -d
+    else
+        echo "Собираю и запускаю контейнеры..."
+        docker compose up -d --build
+    fi
+}
+
+print_done() {
+    echo ""
+    echo "=== Готово! ==="
+    echo "Меню управления:  bash install.sh"
+    echo "Логи бота:        docker compose logs -f bot"
+    echo "Остановить:       docker compose down"
+}
+
+# ---- menu actions (bot already installed) -------------------------------
+do_update() {
+    if [ -d .git ]; then
+        echo "Забираю обновления из репозитория..."
+        git pull --ff-only || echo "git pull не удался — продолжаю с текущим кодом."
+    fi
+    launch_containers
+    echo "Обновление завершено."
+}
+
+do_reinstall() {
+    echo "Пересобираю и пересоздаю контейнеры (настройки и данные сохраняются)..."
+    if grep -q "^COMPOSE_FILE=" .env; then
+        docker compose up -d --force-recreate
+    else
+        docker compose up -d --build --force-recreate
+    fi
+    echo "Переустановка завершена."
+}
+
+do_change_token() {
+    printf "Введите новый BOT_TOKEN (Enter = отмена): "
+    read -r token </dev/tty
+    [ -n "$token" ] || { echo "Отменено."; return; }
+    sed_i "s|^BOT_TOKEN=.*|BOT_TOKEN=${token}|" .env
+    echo "Токен обновлён, перезапускаю бота..."
     docker compose up -d
-else
-    echo "Собираю и запускаю контейнеры..."
-    docker compose up -d --build
-fi
+    echo "Готово."
+}
 
-# Pull the models the bot needs
-TEXT_MODEL=$(grep -E "^TEXT_MODEL=" .env | cut -d= -f2- || true)
-VISION_MODEL=$(grep -E "^VISION_MODEL=" .env | cut -d= -f2- || true)
-TEXT_MODEL=${TEXT_MODEL:-llama3}
-VISION_MODEL=${VISION_MODEL:-llama3.2-vision}
-
-if [ "$OLLAMA_SKIP" = "1" ]; then
-    echo "Модели не скачаны - настройте свою Ollama и выполните: ollama pull $TEXT_MODEL && ollama pull $VISION_MODEL"
-elif [ "$OLLAMA_IN_DOCKER" = "1" ]; then
-    # Wait until the ollama server inside the container answers
-    echo "Жду запуска Ollama в контейнере..."
-    ready=0
-    for _ in $(seq 1 30); do
-        if docker compose exec ollama ollama list >/dev/null 2>&1; then
-            ready=1
-            break
-        fi
-        sleep 2
-    done
-    if [ "$ready" != "1" ]; then
-        echo "Ollama в контейнере не отвечает. Скачайте модели вручную: docker compose exec ollama ollama pull $TEXT_MODEL"
-        exit 1
+do_remove() {
+    printf "Остановить и удалить контейнеры? История и настройки пока сохранятся. y/n [n]: "
+    read -r confirm </dev/tty
+    [ "${confirm:-n}" = "y" ] || { echo "Отменено."; return; }
+    docker compose down
+    printf "Удалить ТАКЖЕ все данные — историю диалогов, настройки (.env), бэкапы? БЕЗВОЗВРАТНО. y/n [n]: "
+    read -r purge </dev/tty
+    if [ "${purge:-n}" = "y" ]; then
+        rm -rf data .env
+        docker compose down -v 2>/dev/null || true
+        echo "Данные удалены. Папку '$DIR' можете удалить вручную."
+    else
+        echo "Контейнеры остановлены. Данные сохранены. Запустить снова: bash install.sh"
     fi
-    echo "Скачиваю модели (может занять много времени, они большие)..."
-    docker compose exec ollama ollama pull "$TEXT_MODEL"
-    docker compose exec ollama ollama pull "$VISION_MODEL"
-else
-    echo "Убедитесь, что модели скачаны: ollama pull $TEXT_MODEL && ollama pull $VISION_MODEL"
-fi
+}
 
-echo ""
-echo "=== Готово! ==="
-echo "Логи бота:      docker compose logs -f bot"
-echo "Остановить:     docker compose down"
-echo "Обновить:       git pull && docker compose up -d --build"
+show_menu() {
+    while true; do
+        echo ""
+        echo "=== aibot-master — бот уже установлен ==="
+        echo "  1) Обновить (забрать новую версию и перезапустить)"
+        echo "  2) Переустановить (пересобрать контейнеры, настройки сохранить)"
+        echo "  3) Сменить токен бота Telegram"
+        echo "  4) Изменить настройки (язык, доступ, модели...)"
+        echo "  5) Удалить бота"
+        echo "  0) Выход"
+        printf "Выбор: "
+        read -r choice </dev/tty
+        case "$choice" in
+            1) do_update ;;
+            2) do_reinstall ;;
+            3) do_change_token ;;
+            4) bash configure.sh ;;
+            5) do_remove; break ;;
+            0) break ;;
+            *) echo "Введите число от 0 до 5." ;;
+        esac
+    done
+}
+
+# ---- entry point --------------------------------------------------------
+main() {
+    require_docker
+
+    # Clone unless already running inside the repo
+    if [ ! -f docker-compose.yml ]; then
+        command -v git >/dev/null 2>&1 || { echo "Ошибка: git не установлен."; exit 1; }
+        [ -d "$DIR" ] || git clone "$REPO_URL" "$DIR"
+        cd "$DIR"
+    fi
+
+    mkdir -p data
+    if [ -f bot_data.db ]; then
+        mv bot_data.db data/bot_data.db
+        echo "Перенёс bot_data.db со старого пути в data/."
+    fi
+
+    if [ -f .env ]; then
+        # Already installed -> management menu
+        show_menu
+    else
+        echo "=== Установка aibot-master ==="
+        run_wizard
+        setup_ollama_and_launch
+        print_done
+    fi
+}
+
+main
