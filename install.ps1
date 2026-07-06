@@ -76,6 +76,35 @@ function Invoke-Wizard {
     Set-EnvValue "VISION_MODEL" $chosenVision
 }
 
+function Invoke-PullModel {
+    param([bool]$Docker, [string]$Model)
+    Write-Host "Скачиваю $Model (может занять время, модель большая)..."
+    if ($Docker) { docker compose exec ollama ollama pull $Model }
+    else { ollama pull $Model }
+}
+
+# Ask which models to download now, then pull them.
+function Invoke-ModelDownload {
+    param([bool]$Docker, [string]$TextModel, [string]$VisionModel)
+    Write-Host ""
+    Write-Host "Скачать нейросети сейчас? Это самый большой объём (модели по несколько ГБ)."
+    Write-Host "  1) Скачать обе: $TextModel (текст) + $VisionModel (фото) — рекомендуется"
+    Write-Host "  2) Только текстовую: $TextModel"
+    Write-Host "  3) Только для фото (vision): $VisionModel"
+    Write-Host "  4) Не скачивать сейчас (бот запустится, модели скачаете позже)"
+    $dl = Read-Host "Выбор [1]"
+    if (-not $dl) { $dl = "1" }
+    switch ($dl) {
+        "2" { Invoke-PullModel -Docker $Docker -Model $TextModel }
+        "3" { Invoke-PullModel -Docker $Docker -Model $VisionModel }
+        "4" { Write-Host "Пропущено. Позже скачаете модели командой ollama pull." }
+        default {
+            Invoke-PullModel -Docker $Docker -Model $TextModel
+            Invoke-PullModel -Docker $Docker -Model $VisionModel
+        }
+    }
+}
+
 function Start-Containers {
     if (Select-String -Path .env -Pattern "^COMPOSE_FILE=" -Quiet) {
         Write-Host "Скачиваю готовый образ и запускаю контейнеры..."
@@ -127,7 +156,7 @@ function Initialize-OllamaAndLaunch {
     $visionModel = if ($envMap["VISION_MODEL"]) { $envMap["VISION_MODEL"] } else { "llama3.2-vision" }
 
     if ($skipDockerOllama) {
-        Write-Host "Модели не скачаны - настройте Ollama и выполните: ollama pull $textModel; ollama pull $visionModel" -ForegroundColor Yellow
+        Write-Host "Ollama не настроена — модели не скачаны. Позже: ollama pull $textModel; ollama pull $visionModel" -ForegroundColor Yellow
     } elseif (-not $ollamaOnHost) {
         Write-Host "Жду запуска Ollama в контейнере..."
         $ready = $false
@@ -140,9 +169,9 @@ function Initialize-OllamaAndLaunch {
             Write-Host "Ollama в контейнере не отвечает. Скачайте модели вручную: docker compose exec ollama ollama pull $textModel" -ForegroundColor Red
             return
         }
-        Write-Host "Скачиваю модели (может занять много времени, они большие)..."
-        docker compose exec ollama ollama pull $textModel
-        docker compose exec ollama ollama pull $visionModel
+        Invoke-ModelDownload -Docker $true -TextModel $textModel -VisionModel $visionModel
+    } elseif (Get-Command ollama -ErrorAction SilentlyContinue) {
+        Invoke-ModelDownload -Docker $false -TextModel $textModel -VisionModel $visionModel
     } else {
         Write-Host "Убедитесь, что модели скачаны: ollama pull $textModel; ollama pull $visionModel"
     }

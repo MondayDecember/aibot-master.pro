@@ -141,7 +141,7 @@ setup_ollama_and_launch() {
     VISION_MODEL=${VISION_MODEL:-llama3.2-vision}
 
     if [ "$OLLAMA_SKIP" = "1" ]; then
-        echo "Модели не скачаны - настройте Ollama и выполните: ollama pull $TEXT_MODEL && ollama pull $VISION_MODEL"
+        echo "Ollama не настроена — модели не скачаны. Позже: ollama pull $TEXT_MODEL && ollama pull $VISION_MODEL"
     elif [ "$OLLAMA_IN_DOCKER" = "1" ]; then
         echo "Жду запуска Ollama в контейнере..."
         ready=0
@@ -153,12 +153,38 @@ setup_ollama_and_launch() {
             echo "Ollama в контейнере не отвечает. Скачайте модели вручную: docker compose exec ollama ollama pull $TEXT_MODEL"
             return
         fi
-        echo "Скачиваю модели (может занять много времени, они большие)..."
-        docker compose exec ollama ollama pull "$TEXT_MODEL"
-        docker compose exec ollama ollama pull "$VISION_MODEL"
+        choose_and_pull_models "docker compose exec ollama ollama"
+    elif command -v ollama >/dev/null 2>&1; then
+        # Ollama on the host with a CLI available - can pull straight in
+        choose_and_pull_models "ollama"
     else
         echo "Убедитесь, что модели скачаны: ollama pull $TEXT_MODEL && ollama pull $VISION_MODEL"
     fi
+}
+
+pull_one() {
+    # $1 = pull command prefix (multi-word, intentionally unquoted), $2 = model
+    echo "Скачиваю $2 (может занять время, модель большая)..."
+    $1 pull "$2"
+}
+
+# Ask which models to download now, then pull them. $1 = pull command prefix
+# ("docker compose exec ollama ollama" or "ollama").
+choose_and_pull_models() {
+    echo ""
+    echo "Скачать нейросети сейчас? Это самый большой объём (модели по несколько ГБ)."
+    echo "  1) Скачать обе: $TEXT_MODEL (текст) + $VISION_MODEL (фото) — рекомендуется"
+    echo "  2) Только текстовую: $TEXT_MODEL"
+    echo "  3) Только для фото (vision): $VISION_MODEL"
+    echo "  4) Не скачивать сейчас (бот запустится, модели скачаете позже)"
+    printf "Выбор [1]: "
+    read -r dl </dev/tty
+    case "${dl:-1}" in
+        2) pull_one "$1" "$TEXT_MODEL" ;;
+        3) pull_one "$1" "$VISION_MODEL" ;;
+        4) echo "Пропущено. Позже скачать: $1 pull $TEXT_MODEL && $1 pull $VISION_MODEL" ;;
+        *) pull_one "$1" "$TEXT_MODEL"; pull_one "$1" "$VISION_MODEL" ;;
+    esac
 }
 
 # Build+start, or pull+start in auto-update mode (COMPOSE_FILE set)
