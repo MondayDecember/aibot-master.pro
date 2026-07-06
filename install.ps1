@@ -185,16 +185,30 @@ function Invoke-ChangeToken {
 }
 
 function Invoke-Remove {
-    $confirm = Read-Host "Остановить и удалить контейнеры? История и настройки пока сохранятся. y/n [n]"
-    if ($confirm -ne "y") { Write-Host "Отменено."; return }
-    docker compose down
-    $purge = Read-Host "Удалить ТАКЖЕ все данные — историю, настройки (.env), бэкапы? БЕЗВОЗВРАТНО. y/n [n]"
-    if ($purge -eq "y") {
-        docker compose down -v *> $null
-        Remove-Item -Recurse -Force data, .env -ErrorAction SilentlyContinue
-        Write-Host "Данные удалены. Папку можете удалить вручную." -ForegroundColor Green
+    Write-Host ""
+    Write-Host "!!! ПОЛНОЕ УДАЛЕНИЕ !!!" -ForegroundColor Red
+    Write-Host "Будет удалено АБСОЛЮТНО ВСЁ и БЕЗВОЗВРАТНО:"
+    Write-Host "  • контейнеры бота, Redis и Ollama;"
+    Write-Host "  • собранный docker-образ и тома (в т.ч. скачанные модели Ollama);"
+    Write-Host "  • история всех диалогов и напоминания;"
+    Write-Host "  • настройки (.env) и все резервные копии в data\backups."
+    $confirm = Read-Host "Точно удалить всё? Впишите 'delete' для подтверждения"
+    if ($confirm -ne "delete") { Write-Host "Отменено — ничего не тронуто."; return }
+
+    Write-Host "Останавливаю и удаляю контейнеры, тома и собранный образ..."
+    docker compose down -v --rmi local *> $null
+    if ($LASTEXITCODE -ne 0) { docker compose down -v *> $null }
+    Remove-Item -Recurse -Force data, .env -ErrorAction SilentlyContinue
+    Write-Host "Бот и все данные удалены." -ForegroundColor Green
+
+    $delFolder = Read-Host "Удалить также саму папку с программой? y/n [n]"
+    if ($delFolder -eq "y") {
+        $folder = Split-Path -Leaf (Get-Location)
+        Set-Location ..
+        Remove-Item -Recurse -Force $folder -ErrorAction SilentlyContinue
+        Write-Host "Папка '$folder' удалена. Готово." -ForegroundColor Green
     } else {
-        Write-Host "Контейнеры остановлены. Данные сохранены. Запустить снова: .\install.ps1"
+        Write-Host "Папка оставлена. Установить заново: .\install.ps1"
     }
 }
 
@@ -206,7 +220,7 @@ function Show-Menu {
         Write-Host "  2) Переустановить (пересобрать контейнеры, настройки сохранить)"
         Write-Host "  3) Сменить токен бота Telegram"
         Write-Host "  4) Изменить настройки (язык, доступ, модели...)"
-        Write-Host "  5) Удалить бота"
+        Write-Host "  5) Удалить ПОЛНОСТЬЮ (стереть бота и ВСЕ данные — безвозвратно)" -ForegroundColor Red
         Write-Host "  0) Выход"
         $choice = Read-Host "Выбор"
         switch ($choice) {

@@ -211,18 +211,29 @@ do_change_token() {
 }
 
 do_remove() {
-    printf "Остановить и удалить контейнеры? История и настройки пока сохранятся. y/n [n]: "
+    echo ""
+    echo "!!! ПОЛНОЕ УДАЛЕНИЕ !!!"
+    echo "Будет удалено АБСОЛЮТНО ВСЁ и БЕЗВОЗВРАТНО:"
+    echo "  • контейнеры бота, Redis и Ollama;"
+    echo "  • собранный docker-образ и тома (в т.ч. скачанные модели Ollama);"
+    echo "  • история всех диалогов и напоминания;"
+    echo "  • настройки (.env) и все резервные копии в data/backups."
+    printf "Точно удалить всё? Впишите 'delete' для подтверждения: "
     read -r confirm </dev/tty
-    [ "${confirm:-n}" = "y" ] || { echo "Отменено."; return; }
-    docker compose down
-    printf "Удалить ТАКЖЕ все данные — историю диалогов, настройки (.env), бэкапы? БЕЗВОЗВРАТНО. y/n [n]: "
-    read -r purge </dev/tty
-    if [ "${purge:-n}" = "y" ]; then
-        rm -rf data .env
-        docker compose down -v 2>/dev/null || true
-        echo "Данные удалены. Папку '$DIR' можете удалить вручную."
+    [ "$confirm" = "delete" ] || { echo "Отменено — ничего не тронуто."; return; }
+
+    echo "Останавливаю и удаляю контейнеры, тома и собранный образ..."
+    docker compose down -v --rmi local 2>/dev/null || docker compose down -v 2>/dev/null || true
+    rm -rf data .env
+    echo "Бот и все данные удалены."
+
+    printf "Удалить также саму папку с программой? y/n [n]: "
+    read -r delfolder </dev/tty
+    if [ "${delfolder:-n}" = "y" ]; then
+        folder=$(basename "$PWD"); parent=$(dirname "$PWD")
+        cd "$parent" && rm -rf "$folder" && echo "Папка '$folder' удалена. Готово."
     else
-        echo "Контейнеры остановлены. Данные сохранены. Запустить снова: bash install.sh"
+        echo "Папка оставлена. Установить заново: bash install.sh"
     fi
 }
 
@@ -234,7 +245,7 @@ show_menu() {
         echo "  2) Переустановить (пересобрать контейнеры, настройки сохранить)"
         echo "  3) Сменить токен бота Telegram"
         echo "  4) Изменить настройки (язык, доступ, модели...)"
-        echo "  5) Удалить бота"
+        echo "  5) Удалить ПОЛНОСТЬЮ (стереть бота и ВСЕ данные — безвозвратно)"
         echo "  0) Выход"
         printf "Выбор: "
         read -r choice </dev/tty
