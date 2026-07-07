@@ -16,6 +16,35 @@ _SUMMARY_SYSTEM = (
 )
 
 
+_ONDEMAND_SYSTEM = (
+    "Summarize the following conversation for the user in a few short bullet "
+    "points: the main topics discussed and any decisions or open questions. "
+    "Write in the language of the conversation. Reply with only the summary."
+)
+
+
+async def summarize_history(history_id: int) -> str | None:
+    """One-off summary of the current dialog for /summary. Returns None when
+    there's nothing to summarize. Not stored - unlike update_summary."""
+    recent = await get_history(history_id, limit=40)
+    convo = "\n".join(
+        f"{m['role']}: {m['content']}"
+        for m in recent
+        if isinstance(m.get("content"), str) and m["content"]
+    )
+    if not convo.strip():
+        return None
+    response = await client.chat.completions.create(
+        model=SUMMARY_MODEL or TEXT_MODEL,
+        messages=[
+            {"role": "system", "content": _ONDEMAND_SYSTEM},
+            {"role": "user", "content": convo},
+        ],
+        temperature=0.3,
+    )
+    return (response.choices[0].message.content or "").strip() or None
+
+
 async def needs_summary(history_id: int) -> bool:
     """True when enough new messages piled up since the last refresh."""
     if not LONG_TERM_MEMORY:

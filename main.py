@@ -80,10 +80,15 @@ async def setup_commands(bot: Bot):
         BotCommand(command="clear", description=t("desc_clear")),
         BotCommand(command="web", description=t("desc_web")),
         BotCommand(command="reminders", description=t("desc_reminders")),
+        BotCommand(command="summary", description=t("desc_summary")),
         BotCommand(command="model", description=t("desc_model")),
         BotCommand(command="persona", description=t("desc_persona")),
+        BotCommand(command="setprompt", description=t("desc_setprompt")),
         BotCommand(command="language", description=t("desc_language")),
+        BotCommand(command="whoami", description=t("desc_whoami")),
         BotCommand(command="dice", description=t("desc_dice")),
+        BotCommand(command="roll", description=t("desc_roll")),
+        BotCommand(command="8ball", description=t("desc_8ball")),
         BotCommand(command="stats", description=t("desc_stats")),
     ]
     # Only advertised when the separate imagegen service is configured -

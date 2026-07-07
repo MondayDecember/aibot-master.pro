@@ -9,8 +9,9 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 from aiogram.filters import CommandStart, Command, CommandObject
 from config import AVAILABLE_MODELS, TEXT_MODEL, PERSONAS, DB_PATH, IMAGEGEN_ENABLED, VOICE_REPLIES, RATE_LIMIT_PER_MINUTE
-from db.database import add_message, clear_history, get_user_model, set_user_model, get_user_persona, set_user_persona, get_stats, list_reminders, delete_reminder, get_voice_pref, set_voice_pref, start_new_session, set_user_language
+from db.database import add_message, clear_history, get_user_model, set_user_model, get_user_persona, set_user_persona, get_stats, list_reminders, delete_reminder, get_voice_pref, set_voice_pref, start_new_session, set_user_language, get_user_language, get_custom_prompt, set_custom_prompt
 from task_queue.enqueue import enqueue_llm_job, over_rate_limit
+from utils.tts_helper import synthesize_speech
 from utils.admin import get_admin_id, set_admin_id, admin_is_env_locked
 from utils.group import gate_group_message, history_key, should_chime_in, CHATTER_PROMPT
 from utils.reminders import is_reminder_request, format_due
@@ -44,6 +45,63 @@ async def cmd_new(message: Message):
     """Start a fresh context without deleting the old history."""
     await start_new_session(history_key(message))
     await message.answer(t("new_done"))
+
+@router.message(Command("whoami"))
+async def cmd_whoami(message: Message):
+    uid = message.from_user.id
+    model = await get_user_model(uid) or TEXT_MODEL
+    persona = await get_user_persona(uid) or "default"
+    lang = await get_user_language(uid) or "—"
+    voice = t("yes_word") if await get_voice_pref(uid) else t("no_word")
+    custom = await get_custom_prompt(uid)
+    await message.answer(
+        t("whoami", id=uid, model=model, persona=t(f"persona_{persona}"),
+          lang=lang, voice=voice, prompt=(custom or t("none_word"))),
+        parse_mode="HTML",
+    )
+
+@router.message(Command("setprompt"))
+async def cmd_setprompt(message: Message, command: CommandObject):
+    """Personal custom instructions applied on top of the persona."""
+    arg = (command.args or "").strip()
+    if not arg:
+        current = await get_custom_prompt(message.from_user.id)
+        await message.answer(
+            t("setprompt_current", text=current) if current else t("setprompt_none"),
+            parse_mode="HTML",
+        )
+        return
+    if arg == "-":
+        await set_custom_prompt(message.from_user.id, None)
+        await message.answer(t("setprompt_cleared"))
+        return
+    await set_custom_prompt(message.from_user.id, arg[:1000])
+    await message.answer(t("setprompt_set"))
+
+@router.message(Command("summary"))
+async def cmd_summary(message: Message, redis):
+    """On-demand summary of the current dialog (runs through the LLM queue)."""
+    bot_message = await message.answer(t("summary_working"), parse_mode="HTML")
+    await redis.rpush("llm_queue", json.dumps({
+        "chat_id": message.chat.id,
+        "user_id": message.from_user.id,
+        "history_id": history_key(message),
+        "context_type": "usersummary",
+        "bot_message_id": bot_message.message_id,
+        "prompt": "",
+    }))
+
+@router.callback_query(F.data == "tts")
+async def cb_tts(callback: CallbackQuery, redis):
+    """Speak a finished reply on demand (🔊 button)."""
+    text = await redis.get(f"tts:{callback.message.chat.id}:{callback.message.message_id}")
+    if not text:
+        await callback.answer()
+        return
+    await callback.answer()
+    audio = await synthesize_speech(text)
+    if audio:
+        await callback.message.answer_voice(BufferedInputFile(audio, filename="reply.ogg"))
 
 @router.callback_query(F.data.startswith("stop:"))
 async def cb_stop(callback: CallbackQuery, redis):
@@ -84,6 +142,32 @@ async def cb_regen(callback: CallbackQuery, redis):
 async def cmd_dice(message: Message, command: CommandObject):
     """Fair randomness: /dice, /dice coin, /dice N, /dice a, b, c."""
     await message.answer(_dice_result(command.args))
+
+_ROLL_RE = re.compile(r"^\s*(\d*)d(\d+)\s*([+-]\s*\d+)?\s*$", re.IGNORECASE)
+
+@router.message(Command("roll"))
+async def cmd_roll(message: Message, command: CommandObject):
+    """Dice notation: /roll 2d6, /roll d20+3."""
+    m = _ROLL_RE.match(command.args or "d6")
+    if not m:
+        await message.answer(t("roll_usage"))
+        return
+    count = min(int(m.group(1) or 1), 100)
+    sides = int(m.group(2))
+    modifier = int((m.group(3) or "0").replace(" ", ""))
+    if count < 1 or sides < 2:
+        await message.answer(t("roll_usage"))
+        return
+    rolls = [random.randint(1, sides) for _ in range(count)]
+    total = sum(rolls) + modifier
+    expr = f"{count}d{sides}" + (f"{modifier:+d}" if modifier else "")
+    shown = " + ".join(map(str, rolls)) + (f" {modifier:+d}" if modifier else "")
+    await message.answer(t("roll_result", expr=expr, rolls=shown, total=total), parse_mode="HTML")
+
+@router.message(Command("8ball"))
+async def cmd_8ball(message: Message):
+    answer = random.choice(t("eightball_answers").split("\n"))
+    await message.answer(t("eightball_prefix", answer=answer))
 
 def _dice_result(args: str | None) -> str:
     arg = (args or "").strip()

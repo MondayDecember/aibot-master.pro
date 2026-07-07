@@ -54,6 +54,11 @@ async def init_db():
             )
         except aiosqlite.OperationalError:
             pass
+        try:
+            # Personal "custom instructions" prepended to the system prompt.
+            await db.execute("ALTER TABLE user_settings ADD COLUMN custom_prompt TEXT")
+        except aiosqlite.OperationalError:
+            pass
         # get_history filters by user_id on every message - without an index
         # that's a full table scan that keeps growing with the history.
         await db.execute(
@@ -184,6 +189,23 @@ async def set_user_language(user_id: int, lang: str):
             "INSERT INTO user_settings (user_id, language) VALUES (?, ?) "
             "ON CONFLICT(user_id) DO UPDATE SET language = excluded.language",
             (user_id, lang)
+        )
+        await db.commit()
+
+async def get_custom_prompt(user_id: int) -> str | None:
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute(
+            "SELECT custom_prompt FROM user_settings WHERE user_id = ?", (user_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return row[0] if row else None
+
+async def set_custom_prompt(user_id: int, prompt: str | None):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute(
+            "INSERT INTO user_settings (user_id, custom_prompt) VALUES (?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET custom_prompt = excluded.custom_prompt",
+            (user_id, prompt)
         )
         await db.commit()
 

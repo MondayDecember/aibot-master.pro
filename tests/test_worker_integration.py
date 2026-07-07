@@ -169,6 +169,38 @@ def test_stop_button_cuts_the_stream(monkeypatch):
     assert "конец" not in bot.edits[-1]
 
 
+def test_usersummary_job_sends_summary(monkeypatch):
+    asyncio.run(init_db())
+
+    async def fake_summarize(history_id):
+        return "• обсудили сервер\n• решили сделать бэкап"
+
+    monkeypatch.setattr(worker, "summarize_history", fake_summarize)
+    bot = FakeBot()
+    redis = FakeRedis([json.dumps({
+        "chat_id": 1, "user_id": 5, "history_id": 5,
+        "context_type": "usersummary", "bot_message_id": 10, "prompt": "",
+    })])
+    asyncio.run(worker.process_queue(bot, redis))
+    assert "бэкап" in bot.edits[-1]
+
+
+def test_custom_prompt_is_applied(monkeypatch):
+    asyncio.run(init_db())
+    asyncio.run(clear_history(31350))
+    from db.database import set_custom_prompt
+    asyncio.run(set_custom_prompt(31350, "ВСЕГДА отвечай одним словом"))
+
+    seen = {}
+
+    async def capture_stream(prompt, history_id, context_type, model_override=None, system_prompt=None):
+        seen["system_prompt"] = system_prompt
+        yield "ок"
+
+    _run(monkeypatch, [_job(31350)], stream=capture_stream)
+    assert "ВСЕГДА отвечай одним словом" in seen["system_prompt"]
+
+
 def test_summary_job_queued_after_threshold(monkeypatch):
     # conftest sets SUMMARIZE_EVERY=5; two jobs write 4 rows, then the third
     # crosses the threshold and must enqueue a summarize job

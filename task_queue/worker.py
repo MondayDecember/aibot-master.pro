@@ -10,12 +10,12 @@ from aiogram.utils.chat_action import ChatActionSender
 from config import build_system_prompt, AUTO_WEB_SEARCH, STREAM_RESPONSES, STREAM_EDIT_INTERVAL, VOICE_REPLIES
 from utils.alerts import notify_admin
 from utils.llm_client import generate_response, stream_response, route_message
-from utils.memory import needs_summary, update_summary
+from utils.memory import needs_summary, update_summary, summarize_history
 from utils.reminders import parse_reminder, format_due
 from utils.texts import t, set_current_language
 from utils.tts_helper import synthesize_speech
 from utils.web_search import gather_web_context
-from db.database import get_history, add_message, add_reminder, get_user_model, get_user_persona, get_voice_pref, get_user_language
+from db.database import get_history, add_message, add_reminder, get_user_model, get_user_persona, get_voice_pref, get_user_language, get_custom_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -93,10 +93,14 @@ def _stop_kb(message_id: int) -> InlineKeyboardMarkup:
         InlineKeyboardButton(text=t("btn_stop"), callback_data=f"stop:{message_id}")
     ]])
 
-def _regen_kb() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text=t("btn_regen"), callback_data="regen")
-    ]])
+def _reply_kb(regen: bool, voice: bool):
+    """Buttons under a finished reply: ↻ regenerate and/or 🔊 speak."""
+    row = []
+    if regen:
+        row.append(InlineKeyboardButton(text=t("btn_regen"), callback_data="regen"))
+    if voice:
+        row.append(InlineKeyboardButton(text=t("btn_voice"), callback_data="tts"))
+    return InlineKeyboardMarkup(inline_keyboard=[row]) if row else None
 
 async def _try_edit(bot: Bot, chat_id: int, message_id: int, text: str,
                     parse_mode: str = None, reply_markup=None):
@@ -199,6 +203,22 @@ async def process_queue(bot: Bot, redis_client):
                         await notify_admin(bot, e)
                         await _edit_status(bot, chat_id, bot_message_id, t("error_generic"))
                     continue
+
+                # On-demand /summary of the current dialog
+                if context_type == "usersummary":
+                    set_current_language(await get_user_language(user_id))
+                    try:
+                        summary = await summarize_history(history_id)
+                        await _edit_status(
+                            bot, chat_id, bot_message_id,
+                            t("summary_result", text=html.escape(summary)) if summary
+                            else t("summary_empty")
+                        )
+                    except Exception as e:
+                        logger.error(f"On-demand summary failed: {e}")
+                        await notify_admin(bot, e)
+                        await _edit_status(bot, chat_id, bot_message_id, t("error_generic"))
+                    continue
                 
                 # Fetch DB History is now handled directly by the LLM client
                 
@@ -208,6 +228,10 @@ async def process_queue(bot: Bot, redis_client):
                     user_model = await get_user_model(user_id)  # None = use TEXT_MODEL default
                     persona_key = await get_user_persona(user_id) or "default"
                     system_prompt = build_system_prompt(persona_key)
+                    # Personal custom instructions (/setprompt) on top of persona
+                    custom = await get_custom_prompt(user_id)
+                    if custom:
+                        system_prompt = f"{system_prompt}\n\nUser's personal instructions: {custom}"
                     # Voice in, voice out - but only when this user turned it
                     # on (menu toggle). Off by default: a text+voice double of
                     # the same reply annoyed people, and voice replaces text.
@@ -343,19 +367,28 @@ async def process_queue(bot: Bot, redis_client):
                                 logger.warning(f"Failed to send voice reply: {e}")
 
                     if not sent_as_voice:
-                        # The ↻ button goes on the LAST chunk only.
-                        regen_kb = _regen_kb() if offer_regen else None
+                        # 🔊 speak-on-demand only on single-chunk text replies
+                        # (needs a stable message id to stash the text under);
+                        # ↻ regenerate goes on the last chunk of any reply.
+                        single = len(html_chunks) == 1
+                        offer_voice = bool(VOICE_REPLIES and bot_message_id and single
+                                           and context_type in ("text", "voice"))
+                        if offer_voice:
+                            plain = _HTML_TAG_RE.sub("", html_chunks[0])
+                            await redis_client.set(f"tts:{chat_id}:{bot_message_id}", plain, ex=3600)
+                        last_kb = _reply_kb(offer_regen, offer_voice)
+                        regen_kb = _reply_kb(offer_regen, False)
                         last = len(html_chunks) - 1
                         if bot_message_id:
                             try:
                                 await _send_or_edit_html(bot, chat_id, bot_message_id, html_chunks[0],
-                                                         edit=True, reply_markup=regen_kb if last == 0 else None)
+                                                         edit=True, reply_markup=last_kb if last == 0 else None)
                             except Exception as edit_error:
                                 # Placeholder gone (user deleted it)? Don't lose
                                 # the generated reply - send it as a new message.
                                 logger.warning(f"Final edit failed, sending anew: {edit_error}")
                                 await _send_or_edit_html(bot, chat_id, bot_message_id, html_chunks[0],
-                                                         edit=False, reply_markup=regen_kb if last == 0 else None)
+                                                         edit=False, reply_markup=last_kb if last == 0 else None)
                             for i, chunk in enumerate(html_chunks[1:], start=1):
                                 await _send_or_edit_html(bot, chat_id, bot_message_id, chunk,
                                                          edit=False, reply_markup=regen_kb if i == last else None)

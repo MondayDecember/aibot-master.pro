@@ -167,6 +167,36 @@ _TEXTS = {
         "dice_heads": "Heads",
         "dice_tails": "Tails",
         "dice_choice": "🎯 {choice}",
+        "roll_usage": "Format: /roll 2d6, /roll d20+3, /roll d6",
+        "roll_result": "🎲 {expr}: {rolls} = <b>{total}</b>",
+        "eightball_prefix": "🎱 {answer}",
+        "eightball_answers": "It is certain\nYes\nMost likely\nSigns point to yes\nReply hazy, try again\nAsk again later\nDon't count on it\nMy answer is no\nVery doubtful",
+        "desc_roll": "Dice notation roll (2d6, d20+3)",
+        "desc_8ball": "Magic 8-ball",
+        "btn_voice": "🔊 Voice",
+        "whoami": (
+            "🪪 <b>Your settings</b>\n"
+            "ID: <code>{id}</code>\n"
+            "Model: <code>{model}</code>\n"
+            "Persona: {persona}\n"
+            "Language: {lang}\n"
+            "Voice replies: {voice}\n"
+            "Personal instructions: {prompt}"
+        ),
+        "desc_whoami": "Your ID and settings",
+        "yes_word": "on",
+        "no_word": "off",
+        "none_word": "—",
+        "setprompt_usage": "Send: /setprompt your instructions. Show current: /setprompt. Remove: /setprompt -",
+        "setprompt_current": "Your personal instructions:\n<i>{text}</i>\n\nChange: /setprompt <text>. Remove: /setprompt -",
+        "setprompt_none": "No personal instructions yet. Set them: /setprompt <text> (e.g. \"answer briefly\").",
+        "setprompt_set": "Done - I'll keep your instructions in mind.",
+        "setprompt_cleared": "Personal instructions removed.",
+        "desc_setprompt": "Personal instructions",
+        "summary_working": "<i>📝 Summarizing...</i>",
+        "summary_result": "📝 <b>Summary</b>\n{text}",
+        "summary_empty": "Nothing to summarize yet - write a few messages first.",
+        "desc_summary": "Summarize this dialog",
         "repeat_daily": "(every day)",
         "repeat_weekdays": "(on weekdays)",
         "repeat_weekly": "(every week)",
@@ -337,6 +367,36 @@ _TEXTS = {
         "dice_heads": "Орёл",
         "dice_tails": "Решка",
         "dice_choice": "🎯 {choice}",
+        "roll_usage": "Формат: /roll 2d6, /roll d20+3, /roll d6",
+        "roll_result": "🎲 {expr}: {rolls} = <b>{total}</b>",
+        "eightball_prefix": "🎱 {answer}",
+        "eightball_answers": "Бесспорно\nДа\nСкорее всего\nЗнаки говорят «да»\nПока не ясно, спроси ещё раз\nСпроси позже\nНе рассчитывай на это\nМой ответ — нет\nОчень сомнительно",
+        "desc_roll": "Бросок кубиков (2d6, d20+3)",
+        "desc_8ball": "Магический шар",
+        "btn_voice": "🔊 Озвучить",
+        "whoami": (
+            "🪪 <b>Ваши настройки</b>\n"
+            "ID: <code>{id}</code>\n"
+            "Модель: <code>{model}</code>\n"
+            "Персонаж: {persona}\n"
+            "Язык: {lang}\n"
+            "Голосовые ответы: {voice}\n"
+            "Личные инструкции: {prompt}"
+        ),
+        "desc_whoami": "Ваш ID и настройки",
+        "yes_word": "вкл",
+        "no_word": "выкл",
+        "none_word": "—",
+        "setprompt_usage": "Отправьте: /setprompt ваши инструкции. Показать текущие: /setprompt. Убрать: /setprompt -",
+        "setprompt_current": "Ваши личные инструкции:\n<i>{text}</i>\n\nИзменить: /setprompt <текст>. Убрать: /setprompt -",
+        "setprompt_none": "Личных инструкций нет. Задать: /setprompt <текст> (например: «отвечай кратко»).",
+        "setprompt_set": "Готово — буду учитывать ваши инструкции.",
+        "setprompt_cleared": "Личные инструкции убраны.",
+        "desc_setprompt": "Личные инструкции",
+        "summary_working": "<i>📝 Собираю выжимку...</i>",
+        "summary_result": "📝 <b>Краткое содержание</b>\n{text}",
+        "summary_empty": "Пока нечего суммировать — напишите пару сообщений.",
+        "desc_summary": "Кратко о диалоге",
         "repeat_daily": "(каждый день)",
         "repeat_weekdays": "(по будням)",
         "repeat_weekly": "(каждую неделю)",
