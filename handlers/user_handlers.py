@@ -15,6 +15,7 @@ from utils.tts_helper import synthesize_speech
 from utils.admin import get_admin_id, set_admin_id, admin_is_env_locked
 from utils.group import gate_group_message, history_key, should_chime_in, CHATTER_PROMPT
 from utils.reminders import is_reminder_request, format_due
+from utils.reactions import react_seen
 from utils.imagegen_client import generate_image
 from utils.llm_backend import list_installed_models
 from utils.texts import t, set_current_language
@@ -559,6 +560,7 @@ async def cb_nav_web(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 async def _run_web_search(message: Message, redis, query: str):
+    await react_seen(message)
     bot_message = await message.answer(t("searching"), parse_mode="HTML")
 
     search_results = await gather_web_context(query)
@@ -676,6 +678,7 @@ async def handle_text(message: Message, redis, state: FSMContext):
     # them to the LLM, silence is less confusing than a hallucinated answer
     if text.startswith("/"):
         return
+    await react_seen(message)  # 👀 "seen, working on it"
     # "напомни завтра..." becomes a reminder, not a chat turn
     if is_reminder_request(text):
         bot_message = await message.answer(t("remind_parsing"), parse_mode="HTML")

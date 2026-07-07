@@ -5,6 +5,7 @@ from config import DOC_MAX_CHARS
 from task_queue.enqueue import enqueue_llm_job
 from utils.doc_helper import extract_document_text
 from utils.group import gate_group_message, history_key
+from utils.reactions import react_seen
 from utils.texts import t
 
 router = Router()
@@ -37,6 +38,7 @@ async def handle_document(message: Message, redis):
     should_handle, caption_text = await gate_group_message(message, message.caption)
     if not should_handle:
         return
+    await react_seen(message)
     bot_message = await message.answer(t("reading_document"), parse_mode="HTML")
 
     text, error = await extract_document_text(message.bot, message.document)

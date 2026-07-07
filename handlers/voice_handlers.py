@@ -3,6 +3,7 @@ from aiogram import Router, F
 from aiogram.types import Message
 from task_queue.enqueue import enqueue_llm_job
 from utils.group import gate_group_message, history_key
+from utils.reactions import react_seen
 from utils.reminders import is_reminder_request
 from utils.texts import t
 from utils.voice_helper import transcribe_voice
@@ -16,6 +17,7 @@ async def handle_voice(message: Message, redis):
     should_handle, _ = await gate_group_message(message, None)
     if not should_handle:
         return
+    await react_seen(message)
     bot_message = await message.answer(t("transcribing"), parse_mode="HTML")
 
     transcription, error = await transcribe_voice(message.bot, message.voice.file_id)

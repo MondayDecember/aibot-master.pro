@@ -2,6 +2,7 @@ from aiogram import Router, F
 from aiogram.types import Message
 from task_queue.enqueue import enqueue_llm_job
 from utils.group import gate_group_message, history_key
+from utils.reactions import react_seen
 from utils.texts import t
 from utils.vision_helper import get_image_base64
 
@@ -14,6 +15,7 @@ async def handle_photo(message: Message, redis):
     should_handle, caption_text = await gate_group_message(message, message.caption)
     if not should_handle:
         return
+    await react_seen(message)
     bot_message = await message.answer(t("processing_image"), parse_mode="HTML")
 
     # Get highest quality photo

@@ -29,6 +29,11 @@ STREAM_RESPONSES = os.getenv("STREAM_RESPONSES", "true").strip().lower() in ("1"
 # stream smoother but risks flood-wait pauses that freeze it entirely.
 STREAM_EDIT_INTERVAL = float(os.getenv("STREAM_EDIT_INTERVAL", "1.0"))
 
+# React with 👀 to a message the moment the bot picks it up - a subtle "seen,
+# working on it" indicator. Purely cosmetic; some clients/groups disable
+# reactions, in which case it silently does nothing.
+REACT_ON_SEEN = os.getenv("REACT_ON_SEEN", "true").strip().lower() in ("1", "true", "yes", "on")
+
 # Access control: comma-separated telegram user IDs allowed to use the bot.
 # Empty = the bot answers everyone. Rejected users are shown their ID so the
 # owner can add them.
