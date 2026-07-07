@@ -6,14 +6,15 @@ and time and asking it to resolve relative expressions ("завтра", "чер�
 A background scheduler polls the db and delivers due reminders.
 """
 import asyncio
+import calendar
 import json
 import logging
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from config import TEXT_MODEL, SUMMARY_MODEL, TIMEZONE, TZINFO
-from db.database import get_due_reminders, mark_reminder_sent
+from db.database import get_due_reminders, mark_reminder_sent, reschedule_reminder
 from utils.llm_client import client
 from utils.texts import t
 
@@ -36,12 +37,41 @@ _PARSE_SYSTEM = (
     "Current local date and time: {now} ({tz}).\n"
     "Reply with ONLY a JSON object and nothing else:\n"
     '{{"text": "<what to remind about, short, in the language of the request>", '
-    '"datetime": "YYYY-MM-DD HH:MM"}}\n'
+    '"datetime": "YYYY-MM-DD HH:MM", '
+    '"repeat": "none|daily|weekdays|weekly|monthly"}}\n'
     "Resolve relative expressions (tomorrow, in 2 hours, on Friday, завтра, "
     "через час, в пятницу) against the current date/time above. If a time of "
-    "day is not given, use 09:00. If the request contains no usable date or "
-    'time at all, reply {{"error": "no_time"}}.'
+    "day is not given, use 09:00.\n"
+    "Set repeat when the user asks for something recurring: 'каждый день'/"
+    "'every day' -> daily, 'по будням'/'on weekdays' -> weekdays, 'каждую "
+    "неделю'/'every week'/'по понедельникам' -> weekly, 'каждый месяц'/"
+    "'every month' -> monthly. Otherwise repeat = none. datetime is the FIRST "
+    "occurrence.\n"
+    "If the request contains no usable date or time at all, reply "
+    '{{"error": "no_time"}}.'
 )
+
+_VALID_REPEATS = ("none", "daily", "weekdays", "weekly", "monthly")
+
+
+def next_occurrence(due: datetime, repeat: str):
+    """Next datetime for a recurring reminder, or None for one-shot."""
+    if repeat == "daily":
+        return due + timedelta(days=1)
+    if repeat == "weekly":
+        return due + timedelta(weeks=1)
+    if repeat == "weekdays":
+        nxt = due + timedelta(days=1)
+        while nxt.weekday() >= 5:  # skip Sat(5)/Sun(6)
+            nxt += timedelta(days=1)
+        return nxt
+    if repeat == "monthly":
+        month = due.month + 1
+        year = due.year + (month > 12)
+        month = 1 if month > 12 else month
+        day = min(due.day, calendar.monthrange(year, month)[1])  # clamp e.g. 31->30
+        return due.replace(year=year, month=month, day=day)
+    return None
 
 
 def is_reminder_request(text) -> bool:
@@ -67,7 +97,7 @@ def _extract_json(raw):
 
 
 async def parse_reminder(text: str, model: str = None):
-    """(reminder_text, due_unix_ts) or None when the time can't be parsed."""
+    """(reminder_text, due_unix_ts, repeat) or None when the time can't be parsed."""
     now = now_local()
     response = await client.chat.completions.create(
         model=model or SUMMARY_MODEL or TEXT_MODEL,
@@ -92,7 +122,10 @@ async def parse_reminder(text: str, model: str = None):
         return None
     if due <= now:
         return None
-    return data["text"].strip(), int(due.timestamp())
+    repeat = data.get("repeat", "none")
+    if repeat not in _VALID_REPEATS:
+        repeat = "none"
+    return data["text"].strip(), int(due.timestamp()), repeat
 
 
 async def reminder_loop(bot):
@@ -111,7 +144,17 @@ async def reminder_loop(bot):
                     logger.info(f"Delivered reminder {reminder['id']}")
                 except Exception as e:
                     logger.warning(f"Reminder {reminder['id']} delivery failed: {e}")
-                await mark_reminder_sent(reminder["id"])
+                # Recurring: reschedule to the next future occurrence (advance
+                # past now so downtime doesn't cause a burst). One-shot: done.
+                repeat = reminder.get("repeat", "none")
+                nxt = next_occurrence(datetime.fromtimestamp(reminder["due_ts"], TZINFO), repeat)
+                if nxt:
+                    now = now_local()
+                    while nxt and nxt <= now:
+                        nxt = next_occurrence(nxt, repeat)
+                    await reschedule_reminder(reminder["id"], int(nxt.timestamp()))
+                else:
+                    await mark_reminder_sent(reminder["id"])
         except asyncio.CancelledError:
             raise
         except Exception as e:

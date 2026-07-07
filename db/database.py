@@ -92,6 +92,11 @@ async def init_db():
         await db.execute(
             "CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders(sent, due_ts)"
         )
+        try:
+            # Recurrence: none/daily/weekly/weekdays/monthly. NULL = one-shot.
+            await db.execute("ALTER TABLE reminders ADD COLUMN repeat TEXT")
+        except aiosqlite.OperationalError:
+            pass
         await db.commit()
         logger.info("Database initialized.")
 
@@ -200,11 +205,11 @@ async def set_voice_pref(user_id: int, enabled: bool):
         )
         await db.commit()
 
-async def add_reminder(user_id: int, chat_id: int, text: str, due_ts: int) -> int:
+async def add_reminder(user_id: int, chat_id: int, text: str, due_ts: int, repeat: str = "none") -> int:
     async with aiosqlite.connect(DB_NAME) as db:
         cursor = await db.execute(
-            "INSERT INTO reminders (user_id, chat_id, text, due_ts) VALUES (?, ?, ?, ?)",
-            (user_id, chat_id, text, due_ts)
+            "INSERT INTO reminders (user_id, chat_id, text, due_ts, repeat) VALUES (?, ?, ?, ?, ?)",
+            (user_id, chat_id, text, due_ts, repeat)
         )
         await db.commit()
         return cursor.lastrowid
@@ -212,23 +217,32 @@ async def add_reminder(user_id: int, chat_id: int, text: str, due_ts: int) -> in
 async def get_due_reminders(now_ts: int) -> List[Dict]:
     async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute(
-            "SELECT id, user_id, chat_id, text, due_ts FROM reminders "
+            "SELECT id, user_id, chat_id, text, due_ts, repeat FROM reminders "
             "WHERE sent = 0 AND due_ts <= ?", (now_ts,)
         ) as cursor:
             rows = await cursor.fetchall()
     return [
-        {"id": r[0], "user_id": r[1], "chat_id": r[2], "text": r[3], "due_ts": r[4]}
+        {"id": r[0], "user_id": r[1], "chat_id": r[2], "text": r[3], "due_ts": r[4],
+         "repeat": r[5] or "none"}
         for r in rows
     ]
+
+async def reschedule_reminder(reminder_id: int, due_ts: int):
+    """Move a (recurring) reminder to its next occurrence, keeping it unsent."""
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute(
+            "UPDATE reminders SET due_ts = ? WHERE id = ?", (due_ts, reminder_id)
+        )
+        await db.commit()
 
 async def list_reminders(user_id: int) -> List[Dict]:
     async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute(
-            "SELECT id, text, due_ts FROM reminders "
+            "SELECT id, text, due_ts, repeat FROM reminders "
             "WHERE user_id = ? AND sent = 0 ORDER BY due_ts", (user_id,)
         ) as cursor:
             rows = await cursor.fetchall()
-    return [{"id": r[0], "text": r[1], "due_ts": r[2]} for r in rows]
+    return [{"id": r[0], "text": r[1], "due_ts": r[2], "repeat": r[3] or "none"} for r in rows]
 
 async def delete_reminder(reminder_id: int, user_id: int) -> bool:
     """Delete a pending reminder; the user_id check stops one user from

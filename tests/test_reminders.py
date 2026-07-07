@@ -52,13 +52,27 @@ def _fake_client(reply_content):
 
 def test_parse_reminder_happy_path(monkeypatch):
     monkeypatch.setattr(rem, "client", _fake_client(
-        '{"text": "проверить сервер", "datetime": "2030-06-01 15:00"}'
+        '{"text": "проверить сервер", "datetime": "2030-06-01 15:00", "repeat": "none"}'
     ))
     result = asyncio.run(parse_reminder("напомни 1 июня 2030 в 15:00 проверить сервер"))
     assert result is not None
-    text, due_ts = result
+    text, due_ts, repeat = result
     assert text == "проверить сервер"
+    assert repeat == "none"
     assert format_due(due_ts).startswith("01.06.2030 15:00")
+
+
+def test_parse_reminder_recurring(monkeypatch):
+    monkeypatch.setattr(rem, "client", _fake_client(
+        '{"text": "таблетки", "datetime": "2030-06-01 09:00", "repeat": "daily"}'
+    ))
+    _, _, repeat = asyncio.run(parse_reminder("напоминай каждый день в 9 про таблетки"))
+    assert repeat == "daily"
+    # unknown/garbage repeat value is sanitised to "none"
+    monkeypatch.setattr(rem, "client", _fake_client(
+        '{"text": "x", "datetime": "2030-06-01 09:00", "repeat": "sometimes"}'
+    ))
+    assert asyncio.run(parse_reminder("напомни"))[2] == "none"
 
 
 def test_parse_reminder_rejects_past_and_errors(monkeypatch):
@@ -72,6 +86,24 @@ def test_parse_reminder_rejects_past_and_errors(monkeypatch):
 
     monkeypatch.setattr(rem, "client", _fake_client("мусор без json"))
     assert asyncio.run(parse_reminder("напомни завтра")) is None
+
+
+# --- recurrence math ---
+
+def test_next_occurrence():
+    from datetime import datetime
+    from config import TZINFO
+    from utils.reminders import next_occurrence
+    d = datetime(2030, 1, 31, 9, 0, tzinfo=TZINFO)  # Thursday
+    assert next_occurrence(d, "daily").day == 1 and next_occurrence(d, "daily").month == 2
+    assert (next_occurrence(d, "weekly") - d).days == 7
+    # monthly from Jan 31 -> Feb 28 (clamped)
+    m = next_occurrence(d, "monthly")
+    assert m.month == 2 and m.day == 28
+    # weekdays: Friday -> Monday (skip weekend)
+    fri = datetime(2030, 2, 1, 9, 0, tzinfo=TZINFO)  # Friday
+    assert next_occurrence(fri, "weekdays").weekday() == 0  # Monday
+    assert next_occurrence(d, "none") is None
 
 
 # --- db lifecycle ---
@@ -98,4 +130,21 @@ def test_reminder_db_lifecycle():
         assert not await delete_reminder(future_id, user_id=999)
         assert await delete_reminder(future_id, user_id=50)
         assert await list_reminders(50) == []
+    asyncio.run(scenario())
+
+
+def test_recurring_reminder_reschedules_not_marks_sent():
+    from db.database import reschedule_reminder
+    async def scenario():
+        await init_db()
+        now = int(time.time())
+        rid = await add_reminder(60, 60, "таблетки", now - 60, repeat="daily")
+        due = await get_due_reminders(now)
+        row = next(r for r in due if r["id"] == rid)
+        assert row["repeat"] == "daily"
+        # simulate the scheduler advancing it a day
+        await reschedule_reminder(rid, now + 86400)
+        # still pending (not sent), now in the future
+        assert rid not in {r["id"] for r in await get_due_reminders(now)}
+        assert rid in {r["id"] for r in await list_reminders(60)}
     asyncio.run(scenario())

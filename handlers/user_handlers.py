@@ -326,11 +326,11 @@ async def cb_nav_language(callback: CallbackQuery):
     await callback.answer()
 
 def _reminders_keyboard(items) -> InlineKeyboardMarkup:
+    def _label(r):
+        rep = "" if r.get("repeat", "none") == "none" else " 🔁"
+        return f"❌ {format_due(r['due_ts'])}{rep} — {r['text'][:28]}"
     buttons = [
-        [InlineKeyboardButton(
-            text=f"❌ {format_due(r['due_ts'])} — {r['text'][:30]}",
-            callback_data=f"remdel:{r['id']}"
-        )]
+        [InlineKeyboardButton(text=_label(r), callback_data=f"remdel:{r['id']}")]
         for r in items
     ]
     buttons.append([InlineKeyboardButton(text=t("back"), callback_data="nav:main")])

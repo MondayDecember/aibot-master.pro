@@ -113,6 +113,22 @@ async def _try_edit(bot: Bot, chat_id: int, message_id: int, text: str,
 async def _edit_status(bot: Bot, chat_id: int, message_id: int, text: str):
     await _try_edit(bot, chat_id, message_id, text, parse_mode="HTML")
 
+async def _handle_reminder(bot: Bot, chat_id: int, bot_message_id, user_id: int, prompt: str):
+    """Parse a reminder request (incl. recurrence), store it, confirm."""
+    parsed = await parse_reminder(prompt)
+    if not parsed:
+        await _edit_status(bot, chat_id, bot_message_id, t("remind_parse_failed"))
+        return
+    reminder_text, due_ts, repeat = parsed
+    await add_reminder(user_id, chat_id, reminder_text, due_ts, repeat)
+    when = format_due(due_ts)
+    if repeat != "none":
+        when += " " + t(f"repeat_{repeat}")
+    await _edit_status(
+        bot, chat_id, bot_message_id,
+        t("remind_set", when=when, text=html.escape(reminder_text))
+    )
+
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 
 async def _send_or_edit_html(bot: Bot, chat_id: int, message_id: int, text_html: str,
@@ -175,18 +191,9 @@ async def process_queue(bot: Bot, redis_client):
                 # (which is told the current date/time), store it, confirm.
                 # No chat reply is generated and nothing goes into history.
                 if context_type == "remind":
+                    set_current_language(await get_user_language(user_id))
                     try:
-                        parsed = await parse_reminder(prompt)
-                        if parsed:
-                            reminder_text, due_ts = parsed
-                            await add_reminder(user_id, chat_id, reminder_text, due_ts)
-                            await _edit_status(
-                                bot, chat_id, bot_message_id,
-                                t("remind_set", when=format_due(due_ts),
-                                  text=html.escape(reminder_text))
-                            )
-                        else:
-                            await _edit_status(bot, chat_id, bot_message_id, t("remind_parse_failed"))
+                        await _handle_reminder(bot, chat_id, bot_message_id, user_id, prompt)
                     except Exception as e:
                         logger.error(f"Reminder parsing failed: {e}")
                         await notify_admin(bot, e)
@@ -220,17 +227,7 @@ async def process_queue(bot: Bot, redis_client):
                             # не забыл...") - understood by meaning, not by
                             # keywords. Handled like an explicit reminder: no
                             # chat reply, nothing goes into history.
-                            parsed = await parse_reminder(prompt)
-                            if parsed:
-                                reminder_text, due_ts = parsed
-                                await add_reminder(user_id, chat_id, reminder_text, due_ts)
-                                await _edit_status(
-                                    bot, chat_id, bot_message_id,
-                                    t("remind_set", when=format_due(due_ts),
-                                      text=html.escape(reminder_text))
-                                )
-                            else:
-                                await _edit_status(bot, chat_id, bot_message_id, t("remind_parse_failed"))
+                            await _handle_reminder(bot, chat_id, bot_message_id, user_id, prompt)
                             continue
 
                         if action == "search" and search_query:
