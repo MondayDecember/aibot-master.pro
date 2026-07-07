@@ -45,6 +45,41 @@ async def cmd_new(message: Message):
     await start_new_session(history_key(message))
     await message.answer(t("new_done"))
 
+@router.callback_query(F.data.startswith("stop:"))
+async def cb_stop(callback: CallbackQuery, redis):
+    """Signal the worker to cut the streaming reply short (checked each tick)."""
+    mid = callback.data.split(":", 1)[1]
+    await redis.set(f"stop:{callback.message.chat.id}:{mid}", "1", ex=120)
+    await callback.answer(t("stopping"))
+
+@router.callback_query(F.data == "regen")
+async def cb_regen(callback: CallbackQuery, redis):
+    """Re-run the user's last prompt to get a different answer."""
+    hid = callback.from_user.id if callback.message.chat.type == "private" else callback.message.chat.id
+    prompt = await redis.get(f"regen:{hid}")
+    if not prompt:
+        await callback.answer(t("regen_none"), show_alert=True)
+        return
+    if await over_rate_limit(redis, callback.from_user.id):
+        await callback.answer(t("rate_limited", limit=RATE_LIMIT_PER_MINUTE), show_alert=True)
+        return
+    await callback.answer(t("regenerating"))
+    # Drop the old reply's button so it can't be tapped twice
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    bot_message = await callback.message.answer(t("thinking"), parse_mode="HTML")
+    await redis.rpush("llm_queue", json.dumps({
+        "chat_id": callback.message.chat.id,
+        "user_id": callback.from_user.id,
+        "history_id": hid,
+        "prompt": prompt,
+        "history_content": prompt,
+        "context_type": "text",
+        "bot_message_id": bot_message.message_id,
+    }))
+
 @router.message(Command("dice"))
 async def cmd_dice(message: Message, command: CommandObject):
     """Fair randomness: /dice, /dice coin, /dice N, /dice a, b, c."""

@@ -167,6 +167,12 @@ _TEXTS = {
         "dice_heads": "Heads",
         "dice_tails": "Tails",
         "dice_choice": "🎯 {choice}",
+        "btn_stop": "⏹ Stop",
+        "btn_regen": "↻ Another answer",
+        "stopped_note": "(stopped)",
+        "regenerating": "Generating another answer...",
+        "regen_none": "Nothing to regenerate - send a new message.",
+        "stopping": "Stopping...",
     },
     "ru": {
         "start": (
@@ -327,6 +333,12 @@ _TEXTS = {
         "dice_heads": "Орёл",
         "dice_tails": "Решка",
         "dice_choice": "🎯 {choice}",
+        "btn_stop": "⏹ Остановить",
+        "btn_regen": "↻ Другой ответ",
+        "stopped_note": "(остановлено)",
+        "regenerating": "Генерирую другой ответ...",
+        "regen_none": "Нечего перегенерировать — отправьте новое сообщение.",
+        "stopping": "Останавливаю...",
     },
 }
 

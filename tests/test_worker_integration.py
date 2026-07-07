@@ -12,6 +12,7 @@ class FakeRedis:
     def __init__(self, jobs):
         self.jobs = list(jobs)
         self.pushed = []
+        self.store = {}
 
     async def blpop(self, key, timeout=0):
         if self.jobs:
@@ -22,16 +23,26 @@ class FakeRedis:
         self.pushed.append(json.loads(value))
         return len(self.pushed)
 
+    # stop-flag / regen-prompt storage used by the streaming path
+    async def get(self, key):
+        return self.store.get(key)
+
+    async def set(self, key, value, ex=None):
+        self.store[key] = value
+
+    async def delete(self, key):
+        self.store.pop(key, None)
+
 
 class FakeBot:
     def __init__(self):
         self.edits = []
         self.sent = []
 
-    async def edit_message_text(self, chat_id=None, message_id=None, text=None, parse_mode=None):
+    async def edit_message_text(self, chat_id=None, message_id=None, text=None, parse_mode=None, reply_markup=None):
         self.edits.append(text)
 
-    async def send_message(self, chat_id, text, parse_mode=None):
+    async def send_message(self, chat_id, text, parse_mode=None, reply_markup=None):
         self.sent.append(text)
 
 
@@ -117,6 +128,45 @@ def test_llm_failure_shows_error_not_crash(monkeypatch):
     assert bot.edits[-1] == t("error_generic")
     # the failed turn must not be persisted
     assert asyncio.run(get_history(31339, limit=10)) == []
+
+
+def test_regen_prompt_is_stored(monkeypatch):
+    asyncio.run(init_db())
+    asyncio.run(clear_history(31341))
+
+    async def fake_stream(prompt, history_id, context_type, model_override=None, system_prompt=None):
+        yield "ответ"
+
+    _, redis = _run(monkeypatch, [_job(31341, prompt="как дела?")], stream=fake_stream)
+    # the user's prompt is kept so the ↻ button can re-run it
+    assert redis.store.get("regen:31341") == "как дела?"
+
+
+def test_stop_button_cuts_the_stream(monkeypatch):
+    asyncio.run(init_db())
+    asyncio.run(clear_history(31342))
+    # edit (and thus the stop-check) on every delta
+    monkeypatch.setattr(worker, "STREAM_EDIT_INTERVAL", 0)
+    monkeypatch.setattr(worker.ChatActionSender, "typing", lambda **kw: _noop_typing())
+    monkeypatch.setattr(worker, "AUTO_WEB_SEARCH", False)
+    monkeypatch.setattr(worker, "STREAM_RESPONSES", True)
+
+    bot, redis = FakeBot(), FakeRedis([_job(31342)])
+
+    # The worker clears any stale stop flag before streaming, so simulate the
+    # user tapping Stop mid-stream: set the flag after the first delta.
+    async def fake_stream(prompt, history_id, context_type, model_override=None, system_prompt=None):
+        yield "начало "
+        redis.store["stop:1:10"] = "1"
+        yield "середина "
+        yield "конец"
+
+    monkeypatch.setattr(worker, "stream_response", fake_stream)
+    asyncio.run(worker.process_queue(bot, redis))
+
+    from utils.texts import t
+    assert t("stopped_note") in bot.edits[-1]
+    assert "конец" not in bot.edits[-1]
 
 
 def test_summary_job_queued_after_threshold(monkeypatch):

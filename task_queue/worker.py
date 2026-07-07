@@ -5,7 +5,7 @@ import logging
 import re
 import time
 from aiogram import Bot
-from aiogram.types import BufferedInputFile
+from aiogram.types import BufferedInputFile, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.chat_action import ChatActionSender
 from config import build_system_prompt, AUTO_WEB_SEARCH, STREAM_RESPONSES, STREAM_EDIT_INTERVAL, VOICE_REPLIES
 from utils.alerts import notify_admin
@@ -88,12 +88,24 @@ def _split_message(text: str, limit: int = TELEGRAM_MESSAGE_LIMIT) -> list[str]:
     chunks.append(text)
     return chunks
 
-async def _try_edit(bot: Bot, chat_id: int, message_id: int, text: str, parse_mode: str = None):
+def _stop_kb(message_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text=t("btn_stop"), callback_data=f"stop:{message_id}")
+    ]])
+
+def _regen_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text=t("btn_regen"), callback_data="regen")
+    ]])
+
+async def _try_edit(bot: Bot, chat_id: int, message_id: int, text: str,
+                    parse_mode: str = None, reply_markup=None):
     """Best-effort message edit - a failed edit (e.g. the user deleted the
     placeholder message, or telegram throttled us) must not kill the job."""
     try:
         await bot.edit_message_text(
-            chat_id=chat_id, message_id=message_id, text=text, parse_mode=parse_mode
+            chat_id=chat_id, message_id=message_id, text=text,
+            parse_mode=parse_mode, reply_markup=reply_markup
         )
     except Exception as e:
         logger.warning(f"Message edit failed: {e}")
@@ -103,22 +115,25 @@ async def _edit_status(bot: Bot, chat_id: int, message_id: int, text: str):
 
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 
-async def _send_or_edit_html(bot: Bot, chat_id: int, message_id: int, text_html: str, edit: bool):
+async def _send_or_edit_html(bot: Bot, chat_id: int, message_id: int, text_html: str,
+                             edit: bool, reply_markup=None):
     """Send/edit one chunk as HTML; fall back to tag-stripped plain text if
     Telegram rejects the markup (e.g. an unclosed tag from a Markdown token
     that got split across message chunks)."""
     try:
         if edit:
-            await bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text_html, parse_mode="HTML")
+            await bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text_html,
+                                        parse_mode="HTML", reply_markup=reply_markup)
         else:
-            await bot.send_message(chat_id, text_html, parse_mode="HTML")
+            await bot.send_message(chat_id, text_html, parse_mode="HTML", reply_markup=reply_markup)
     except Exception as e:
         logger.warning(f"HTML send failed, falling back to plain text: {e}")
         plain = _HTML_TAG_RE.sub("", text_html)
         if edit:
-            await bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=plain)
+            await bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=plain,
+                                        reply_markup=reply_markup)
         else:
-            await bot.send_message(chat_id, plain)
+            await bot.send_message(chat_id, plain, reply_markup=reply_markup)
 
 async def process_queue(bot: Bot, redis_client):
     """Background worker to process LLM requests from Redis queue."""
@@ -238,12 +253,15 @@ async def process_queue(bot: Bot, redis_client):
                     # tokens arrive (the trailing ▌ marks an unfinished reply
                     # and guarantees the final edit differs from the last
                     # streamed preview).
+                    stopped = False
                     async with ChatActionSender.typing(bot=bot, chat_id=chat_id):
                         # No streaming preview when the reply will be a voice
                         # note - the text would appear and then vanish
                         if STREAM_RESPONSES and bot_message_id and not voice_out:
                             response_text = ""
                             last_edit = time.monotonic()
+                            stop_key = f"stop:{chat_id}:{bot_message_id}"
+                            await redis_client.delete(stop_key)  # clear any stale flag
                             async for delta in stream_response(
                                 final_prompt, history_id, final_context_type,
                                 model_override=user_model, system_prompt=system_prompt
@@ -259,10 +277,19 @@ async def process_queue(bot: Bot, redis_client):
                                     # Unclosed markup in a partial text stays
                                     # literal (regexes need both delimiters),
                                     # and _try_edit swallows a rejected edit.
+                                    # The ⏹ button lets the user cut it short.
                                     preview = _markdown_to_telegram_html(response_text)
                                     await _try_edit(bot, chat_id, bot_message_id,
-                                                    preview + " ▌", parse_mode="HTML")
+                                                    preview + " ▌", parse_mode="HTML",
+                                                    reply_markup=_stop_kb(bot_message_id))
                                     last_edit = now
+                                    # Stop pressed? finish with what we have so far.
+                                    if await redis_client.get(stop_key):
+                                        await redis_client.delete(stop_key)
+                                        stopped = True
+                                        break
+                            if stopped:
+                                response_text = (response_text.rstrip() + "\n\n" + t("stopped_note")).strip()
                         else:
                             response_text = await generate_response(
                                 final_prompt, history_id, final_context_type,
@@ -279,6 +306,13 @@ async def process_queue(bot: Bot, redis_client):
                     if history_content:
                         await add_message(history_id, "user", history_content)
                     await add_message(history_id, "assistant", response_text)
+
+                    # Remember the user's prompt so the "↻ Regenerate" button
+                    # can re-run it (text/voice only; 1h TTL).
+                    offer_regen = bool(bot_message_id and context_type in ("text", "voice")
+                                       and isinstance(prompt, str))
+                    if offer_regen:
+                        await redis_client.set(f"regen:{history_id}", prompt, ex=3600)
 
                     # Enough new messages piled up? Queue a memory refresh.
                     if await needs_summary(history_id):
@@ -312,19 +346,26 @@ async def process_queue(bot: Bot, redis_client):
                                 logger.warning(f"Failed to send voice reply: {e}")
 
                     if not sent_as_voice:
+                        # The ↻ button goes on the LAST chunk only.
+                        regen_kb = _regen_kb() if offer_regen else None
+                        last = len(html_chunks) - 1
                         if bot_message_id:
                             try:
-                                await _send_or_edit_html(bot, chat_id, bot_message_id, html_chunks[0], edit=True)
+                                await _send_or_edit_html(bot, chat_id, bot_message_id, html_chunks[0],
+                                                         edit=True, reply_markup=regen_kb if last == 0 else None)
                             except Exception as edit_error:
                                 # Placeholder gone (user deleted it)? Don't lose
                                 # the generated reply - send it as a new message.
                                 logger.warning(f"Final edit failed, sending anew: {edit_error}")
-                                await _send_or_edit_html(bot, chat_id, bot_message_id, html_chunks[0], edit=False)
-                            for chunk in html_chunks[1:]:
-                                await _send_or_edit_html(bot, chat_id, bot_message_id, chunk, edit=False)
+                                await _send_or_edit_html(bot, chat_id, bot_message_id, html_chunks[0],
+                                                         edit=False, reply_markup=regen_kb if last == 0 else None)
+                            for i, chunk in enumerate(html_chunks[1:], start=1):
+                                await _send_or_edit_html(bot, chat_id, bot_message_id, chunk,
+                                                         edit=False, reply_markup=regen_kb if i == last else None)
                         else:
-                            for chunk in html_chunks:
-                                await _send_or_edit_html(bot, chat_id, bot_message_id, chunk, edit=False)
+                            for i, chunk in enumerate(html_chunks):
+                                await _send_or_edit_html(bot, chat_id, bot_message_id, chunk,
+                                                         edit=False, reply_markup=regen_kb if i == last else None)
                 except Exception as e:
                     logger.error(f"Error generating response: {e}")
                     await notify_admin(bot, e)
