@@ -3,6 +3,8 @@
 Model replies are not affected - the LLM answers in whatever language the
 user writes in. This only covers the bot's own interface messages.
 """
+import contextvars
+
 from config import BOT_LANGUAGE
 
 _TEXTS = {
@@ -152,6 +154,19 @@ _TEXTS = {
             "It runs as a separate local service, not part of the bot itself."
         ),
         "image_gen_failed": "Sorry, image generation failed - the imagegen service may not be running.",
+        "new_done": "🆕 Started a fresh dialog. I no longer use the earlier history (it's kept, not deleted).",
+        "menu_new": "🆕 New dialog",
+        "desc_new": "Start a fresh dialog",
+        "menu_language": "🌐 Language / Язык",
+        "language_prompt": "Choose the interface language:",
+        "language_set": "Language switched to English.",
+        "desc_language": "Interface language",
+        "desc_dice": "Dice, coin, random pick",
+        "dice_number": "🎲 {n}",
+        "dice_coin": "🪙 {side}",
+        "dice_heads": "Heads",
+        "dice_tails": "Tails",
+        "dice_choice": "🎯 {choice}",
     },
     "ru": {
         "start": (
@@ -299,8 +314,33 @@ _TEXTS = {
             "Это отдельный локальный сервис, не часть самого бота."
         ),
         "image_gen_failed": "Не удалось сгенерировать картинку — возможно, сервис imagegen сейчас не запущен.",
+        "new_done": "🆕 Начат новый диалог. Прошлую переписку я больше не учитываю (она сохранена, не удалена).",
+        "menu_new": "🆕 Новый диалог",
+        "desc_new": "Начать новый диалог",
+        "menu_language": "🌐 Язык / Language",
+        "language_prompt": "Выберите язык интерфейса:",
+        "language_set": "Язык переключён на русский.",
+        "desc_language": "Язык интерфейса",
+        "desc_dice": "Кубик, монетка, случайный выбор",
+        "dice_number": "🎲 {n}",
+        "dice_coin": "🪙 {side}",
+        "dice_heads": "Орёл",
+        "dice_tails": "Решка",
+        "dice_choice": "🎯 {choice}",
     },
 }
+
+
+# Per-request language override. A middleware sets this from the user's
+# stored preference at the start of each update; the worker sets it per job.
+# Unset -> the global BOT_LANGUAGE from .env.
+_current_lang = contextvars.ContextVar("current_lang", default=None)
+
+
+def set_current_language(lang):
+    """Set the language for t() calls in the current async task (or reset
+    with None)."""
+    _current_lang.set(lang if lang in _TEXTS else None)
 
 
 def t(_key: str, **kwargs) -> str:
@@ -308,6 +348,7 @@ def t(_key: str, **kwargs) -> str:
     # {key} placeholder, and t("switched_to", key=...) would otherwise
     # collide with a same-named positional parameter (TypeError: got
     # multiple values for argument 'key').
-    lang = _TEXTS.get(BOT_LANGUAGE, _TEXTS["en"])
+    lang_code = _current_lang.get() or BOT_LANGUAGE
+    lang = _TEXTS.get(lang_code, _TEXTS["en"])
     template = lang.get(_key) or _TEXTS["en"][_key]
     return template.format(**kwargs) if kwargs else template

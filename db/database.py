@@ -40,6 +40,20 @@ async def init_db():
             )
         except aiosqlite.OperationalError:
             pass
+        try:
+            # Per-user interface language ("ru"/"en"); NULL = use BOT_LANGUAGE.
+            await db.execute("ALTER TABLE user_settings ADD COLUMN language TEXT")
+        except aiosqlite.OperationalError:
+            pass
+        try:
+            # /new starts a fresh context: get_history only reads rows with
+            # id > session_start, so old messages stay in the db (export,
+            # stats) but no longer feed the model.
+            await db.execute(
+                "ALTER TABLE user_settings ADD COLUMN session_start INTEGER DEFAULT 0"
+            )
+        except aiosqlite.OperationalError:
+            pass
         # get_history filters by user_id on every message - without an index
         # that's a full table scan that keeps growing with the history.
         await db.execute(
@@ -124,13 +138,49 @@ async def add_message(user_id: int, role: str, content: str):
         await db.commit()
 
 async def get_history(user_id: int, limit: int = 10) -> List[Dict[str, str]]:
+    # Only rows after the last /new boundary (session_start); no settings row
+    # -> COALESCE gives 0 -> all history, i.e. unchanged default behaviour.
     async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute(
-            "SELECT role, content FROM history WHERE user_id = ? ORDER BY timestamp DESC, id DESC LIMIT ?",
-            (user_id, limit)
+            "SELECT role, content FROM history WHERE user_id = ? "
+            "AND id > COALESCE((SELECT session_start FROM user_settings WHERE user_id = ?), 0) "
+            "ORDER BY timestamp DESC, id DESC LIMIT ?",
+            (user_id, user_id, limit)
         ) as cursor:
             rows = await cursor.fetchall()
             return [{"role": row[0], "content": row[1]} for row in reversed(rows)]
+
+async def start_new_session(history_id: int):
+    """/new: move the context boundary to the newest message, so the model
+    stops seeing earlier ones. History rows are kept (export, stats)."""
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute(
+            "SELECT COALESCE(MAX(id), 0) FROM history WHERE user_id = ?", (history_id,)
+        ) as cursor:
+            max_id = (await cursor.fetchone())[0]
+        await db.execute(
+            "INSERT INTO user_settings (user_id, session_start) VALUES (?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET session_start = excluded.session_start",
+            (history_id, max_id)
+        )
+        await db.commit()
+
+async def get_user_language(user_id: int) -> str | None:
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute(
+            "SELECT language FROM user_settings WHERE user_id = ?", (user_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return row[0] if row else None
+
+async def set_user_language(user_id: int, lang: str):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute(
+            "INSERT INTO user_settings (user_id, language) VALUES (?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET language = excluded.language",
+            (user_id, lang)
+        )
+        await db.commit()
 
 async def get_voice_pref(user_id: int) -> bool:
     """Per-user 'reply with voice to voice messages' preference (default off)."""

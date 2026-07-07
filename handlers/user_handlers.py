@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import random
 import re
 from aiogram import Router, F
 from aiogram.fsm.context import FSMContext
@@ -8,14 +9,14 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 from aiogram.filters import CommandStart, Command, CommandObject
 from config import AVAILABLE_MODELS, TEXT_MODEL, PERSONAS, DB_PATH, IMAGEGEN_ENABLED, VOICE_REPLIES, RATE_LIMIT_PER_MINUTE
-from db.database import add_message, clear_history, get_user_model, set_user_model, get_user_persona, set_user_persona, get_stats, list_reminders, delete_reminder, get_voice_pref, set_voice_pref
+from db.database import add_message, clear_history, get_user_model, set_user_model, get_user_persona, set_user_persona, get_stats, list_reminders, delete_reminder, get_voice_pref, set_voice_pref, start_new_session, set_user_language
 from task_queue.enqueue import enqueue_llm_job, over_rate_limit
 from utils.admin import get_admin_id, set_admin_id, admin_is_env_locked
 from utils.group import gate_group_message, history_key, should_chime_in, CHATTER_PROMPT
 from utils.reminders import is_reminder_request, format_due
 from utils.imagegen_client import generate_image
 from utils.llm_backend import list_installed_models
-from utils.texts import t
+from utils.texts import t, set_current_language
 from utils.web_search import gather_web_context
 
 router = Router()
@@ -37,6 +38,53 @@ async def cmd_clear(message: Message):
     # In groups this clears the shared group history, in private - the user's
     await clear_history(history_key(message))
     await message.answer(t("cleared"))
+
+@router.message(Command("new"))
+async def cmd_new(message: Message):
+    """Start a fresh context without deleting the old history."""
+    await start_new_session(history_key(message))
+    await message.answer(t("new_done"))
+
+@router.message(Command("dice"))
+async def cmd_dice(message: Message, command: CommandObject):
+    """Fair randomness: /dice, /dice coin, /dice N, /dice a, b, c."""
+    await message.answer(_dice_result(command.args))
+
+def _dice_result(args: str | None) -> str:
+    arg = (args or "").strip()
+    if "," in arg:
+        options = [o.strip() for o in arg.split(",") if o.strip()]
+        if options:
+            return t("dice_choice", choice=random.choice(options))
+    low = arg.lower()
+    if low in ("coin", "монетка", "монета", "орёл", "решка", "орел"):
+        side = t("dice_heads") if random.random() < 0.5 else t("dice_tails")
+        return t("dice_coin", side=side)
+    if arg.isdigit() and int(arg) >= 2:
+        return t("dice_number", n=random.randint(1, int(arg)))
+    return t("dice_number", n=random.randint(1, 6))
+
+def _language_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang:ru"),
+        InlineKeyboardButton(text="🇬🇧 English", callback_data="lang:en"),
+    ]])
+
+@router.message(Command("language"))
+async def cmd_language(message: Message):
+    await message.answer(t("language_prompt"), reply_markup=_language_keyboard())
+
+@router.callback_query(F.data.startswith("lang:"))
+async def cb_language(callback: CallbackQuery):
+    lang = callback.data.split(":", 1)[1]
+    if lang not in ("ru", "en"):
+        await callback.answer()
+        return
+    await set_user_language(callback.from_user.id, lang)
+    # Reflect the new language immediately in this same response
+    set_current_language(lang)
+    await callback.message.edit_text(t("language_set"))
+    await callback.answer()
 
 async def _stats_text(redis) -> str:
     stats = await get_stats()
@@ -224,9 +272,23 @@ def _base_menu_buttons() -> list:
     # imagegen/README.md) - otherwise it's just a button that always fails.
     if IMAGEGEN_ENABLED:
         buttons.append([InlineKeyboardButton(text=t("menu_imagine"), callback_data="nav:imagine")])
-    buttons.append([InlineKeyboardButton(text=t("menu_clear"), callback_data="nav:clear"),
+    buttons.append([InlineKeyboardButton(text=t("menu_new"), callback_data="nav:new"),
+                    InlineKeyboardButton(text=t("menu_clear"), callback_data="nav:clear")])
+    buttons.append([InlineKeyboardButton(text=t("menu_language"), callback_data="nav:language"),
                     InlineKeyboardButton(text=t("menu_help"), callback_data="nav:help")])
     return buttons
+
+@router.callback_query(F.data == "nav:new")
+async def cb_nav_new(callback: CallbackQuery):
+    key = callback.from_user.id if callback.message.chat.type == "private" else callback.message.chat.id
+    await start_new_session(key)
+    await callback.message.edit_text(t("new_done"), reply_markup=_back_keyboard())
+    await callback.answer()
+
+@router.callback_query(F.data == "nav:language")
+async def cb_nav_language(callback: CallbackQuery):
+    await callback.message.edit_text(t("language_prompt"), reply_markup=_language_keyboard())
+    await callback.answer()
 
 def _reminders_keyboard(items) -> InlineKeyboardMarkup:
     buttons = [

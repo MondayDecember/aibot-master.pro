@@ -24,6 +24,7 @@ from handlers.vision_handlers import router as vision_router
 from handlers.voice_handlers import router as voice_router
 from handlers.document_handlers import router as document_router
 from middlewares.access import AccessMiddleware
+from middlewares.language import LanguageMiddleware
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -75,11 +76,14 @@ async def setup_commands(bot: Bot):
     commands = [
         BotCommand(command="menu", description=t("desc_menu")),
         BotCommand(command="help", description=t("desc_help")),
+        BotCommand(command="new", description=t("desc_new")),
         BotCommand(command="clear", description=t("desc_clear")),
         BotCommand(command="web", description=t("desc_web")),
         BotCommand(command="reminders", description=t("desc_reminders")),
         BotCommand(command="model", description=t("desc_model")),
         BotCommand(command="persona", description=t("desc_persona")),
+        BotCommand(command="language", description=t("desc_language")),
+        BotCommand(command="dice", description=t("desc_dice")),
         BotCommand(command="stats", description=t("desc_stats")),
     ]
     # Only advertised when the separate imagegen service is configured -
@@ -130,6 +134,9 @@ async def main():
     # Access control (no-op when ALLOWED_USER_IDS is empty)
     dp.message.outer_middleware(AccessMiddleware())
     dp.callback_query.outer_middleware(AccessMiddleware())
+    # Inner: pick the user's language after access is granted
+    dp.message.middleware(LanguageMiddleware())
+    dp.callback_query.middleware(LanguageMiddleware())
 
     # Include routers
     dp.include_router(user_router)

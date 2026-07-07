@@ -12,10 +12,10 @@ from utils.alerts import notify_admin
 from utils.llm_client import generate_response, stream_response, route_message
 from utils.memory import needs_summary, update_summary
 from utils.reminders import parse_reminder, format_due
-from utils.texts import t
+from utils.texts import t, set_current_language
 from utils.tts_helper import synthesize_speech
 from utils.web_search import gather_web_context
-from db.database import get_history, add_message, add_reminder, get_user_model, get_user_persona, get_voice_pref
+from db.database import get_history, add_message, add_reminder, get_user_model, get_user_persona, get_voice_pref, get_user_language
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,7 @@ _MD_QUOTE_RE = re.compile(r"^>\s?(.*)$", re.MULTILINE)
 _MD_BOLD_RE = re.compile(r"\*\*(.+?)\*\*|__(.+?)__")
 _MD_ITALIC_RE = re.compile(r"(?<!\*)\*([^*\n]+?)\*(?!\*)|(?<!_)_([^_\n]+?)_(?!_)")
 _MD_CODE_RE = re.compile(r"`([^`\n]+?)`")
+_MD_FENCE_RE = re.compile(r"```[^\n`]*\n?(.*?)```", re.S)
 _BLANK_RUN_RE = re.compile(r"\n{3,}")
 
 def _markdown_to_telegram_html(text: str) -> str:
@@ -46,6 +47,18 @@ def _markdown_to_telegram_html(text: str) -> str:
     across the escaping step so they don't get escaped themselves.
     """
     _Q_OPEN, _Q_CLOSE = "\x00Q1\x00", "\x00Q2\x00"
+    # Pull fenced code blocks (```...```) out FIRST: escape their contents,
+    # stash behind a sentinel so the markdown transforms below don't touch
+    # them, and restore as <pre> at the end (Telegram renders <pre> monospace
+    # with a copy button). Sentinels contain no & < > * _ ` so they survive
+    # escaping and every regex untouched.
+    code_blocks = []
+    def _stash_code(m):
+        code = m.group(1).strip("\n")
+        escaped = code.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        code_blocks.append(escaped)
+        return f"\x00C{len(code_blocks) - 1}\x00"
+    text = _MD_FENCE_RE.sub(_stash_code, text)
     text = _MD_TABLE_SEP_RE.sub("", text)
     text = _MD_TABLE_ROW_RE.sub(
         lambda m: " — ".join(c.strip() for c in m.group(1).split("|") if c.strip()), text
@@ -59,6 +72,8 @@ def _markdown_to_telegram_html(text: str) -> str:
     text = _MD_ITALIC_RE.sub(lambda m: f"<i>{m.group(1) or m.group(2)}</i>", text)
     text = _MD_CODE_RE.sub(lambda m: f"<code>{m.group(1)}</code>", text)
     text = _BLANK_RUN_RE.sub("\n\n", text)
+    for i, code in enumerate(code_blocks):
+        text = text.replace(f"\x00C{i}\x00", f"<pre>{code}</pre>")
     return text.strip()
 
 def _split_message(text: str, limit: int = TELEGRAM_MESSAGE_LIMIT) -> list[str]:
@@ -138,6 +153,8 @@ async def process_queue(bot: Bot, redis_client):
                 history_id = job_data.get("history_id", user_id)
                 prompt = job_data["prompt"]
                 bot_message_id = job_data.get("bot_message_id")
+                # Status messages (t()) in the user's chosen language
+                set_current_language(await get_user_language(user_id))
 
                 # Reminder request: extract "what" and "when" via the LLM
                 # (which is told the current date/time), store it, confirm.
