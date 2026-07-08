@@ -88,6 +88,24 @@ def test_parse_reminder_rejects_past_and_errors(monkeypatch):
     assert asyncio.run(parse_reminder("напомни завтра")) is None
 
 
+# --- lenient datetime parsing (models format it inconsistently) ---
+
+def test_parse_datetime_accepts_common_shapes():
+    from utils.reminders import _parse_datetime
+    variants = [
+        "2030-06-01 15:00",
+        "2030-06-01T15:00",
+        "2030-06-01 15:00:00",
+        "2030-06-01T15:00:00",
+        "01.06.2030 15:00",
+    ]
+    for v in variants:
+        dt = _parse_datetime(v)
+        assert dt is not None, v
+        assert dt.year == 2030 and dt.month == 6 and dt.day == 1 and dt.hour == 15
+    assert _parse_datetime("не дата") is None
+
+
 # --- recurrence math ---
 
 def test_next_occurrence():

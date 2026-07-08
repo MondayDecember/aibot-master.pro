@@ -115,17 +115,40 @@ async def parse_reminder(text: str, model: str = None):
     )
     data = _extract_json(response.choices[0].message.content)
     if not data or data.get("error") or not data.get("text") or not data.get("datetime"):
+        logger.info(f"Reminder not parsed from: {text!r} -> {data!r}")
         return None
-    try:
-        due = datetime.strptime(data["datetime"], "%Y-%m-%d %H:%M").replace(tzinfo=TZINFO)
-    except ValueError:
+    due = _parse_datetime(str(data["datetime"]))
+    if due is None:
+        logger.info(f"Reminder datetime unparseable: {data.get('datetime')!r}")
         return None
     if due <= now:
         return None
     repeat = data.get("repeat", "none")
     if repeat not in _VALID_REPEATS:
         repeat = "none"
+    logger.info(f"Reminder set for {due.isoformat()} (repeat={repeat}): {data['text']!r}")
     return data["text"].strip(), int(due.timestamp()), repeat
+
+
+# Small local models format the datetime inconsistently (space or T, with or
+# without seconds, sometimes DD.MM.YYYY) - accept the common shapes instead of
+# dropping an otherwise-valid reminder.
+_DT_FORMATS = (
+    "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M",
+    "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S",
+    "%d.%m.%Y %H:%M", "%d.%m.%Y %H:%M:%S",
+    "%Y-%m-%d %H.%M",
+)
+
+
+def _parse_datetime(raw: str):
+    raw = raw.strip().replace("  ", " ")
+    for fmt in _DT_FORMATS:
+        try:
+            return datetime.strptime(raw, fmt).replace(tzinfo=TZINFO)
+        except ValueError:
+            continue
+    return None
 
 
 async def reminder_loop(bot):
