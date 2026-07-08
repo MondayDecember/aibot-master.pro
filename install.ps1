@@ -275,7 +275,7 @@ function Show-Menu {
     while ($true) {
         Write-Host ""
         Write-Host "=== aibot-master — бот уже установлен ===" -ForegroundColor Cyan
-        Write-Host "  1) Обновить (забрать новую версию и перезапустить)"
+        Write-Host "  1) Обновить (скачать новую версию и перезапустить)"
         Write-Host "  2) Переустановить (пересобрать контейнеры, настройки сохранить)"
         Write-Host "  3) Сменить токен бота Telegram"
         Write-Host "  4) Изменить настройки (язык, доступ, модели...)"
