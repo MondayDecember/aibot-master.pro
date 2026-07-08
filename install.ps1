@@ -13,6 +13,26 @@ function Set-EnvValue {
     (Get-Content .env) -replace "^#?\s*$Key=.*", "$Key=$Value" | Set-Content .env
 }
 
+function Test-BotInstalled {
+    # "Installed" = the bot container has actually been created, not just an
+    # .env sitting around from an aborted setup. Doesn't need .env to exist.
+    $id = docker ps -a --filter "name=^aiogram_bot$" -q 2>$null
+    return -not [string]::IsNullOrWhiteSpace($id)
+}
+
+function Invoke-Configurator {
+    # Run the settings menu inline (NOT & .\configure.ps1 - calling a .ps1
+    # file is blocked by the execution policy, while this whole script ran
+    # via 'irm | iex' which isn't). Same command configure.ps1 uses.
+    docker compose run --rm --no-deps --user root -v "${PWD}/.env:/app/.env" bot `
+        python tools/configure.py --env /app/.env --sep ";"
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "Применяю настройки (перезапуск бота)..."
+        docker compose up -d
+        Write-Host "Готово." -ForegroundColor Green
+    }
+}
+
 function Invoke-Wizard {
     Copy-Item .env.example .env
     $token = Read-Host "Введите BOT_TOKEN (получить у @BotFather; Enter = пропустить и ввести позже)"
@@ -229,13 +249,13 @@ function Invoke-Remove {
     $delModels = Read-Host "Удалить ТАКЖЕ скачанные модели Ollama (только если она в docker; несколько ГБ)? y/n [n]"
 
     Write-Host "Останавливаю и удаляю контейнеры и образ..."
+    # 2>&1 | Out-Null: docker writes progress to stderr, which PowerShell would
+    # otherwise surface as a NativeCommandError.
     if ($delModels -eq "y") {
-        docker compose down -v --rmi local *> $null
-        if ($LASTEXITCODE -ne 0) { docker compose down -v *> $null }
+        docker compose down -v --rmi local 2>&1 | Out-Null
         Write-Host "Модели Ollama в docker тоже удалены."
     } else {
-        docker compose down --rmi local *> $null
-        if ($LASTEXITCODE -ne 0) { docker compose down *> $null }
+        docker compose down --rmi local 2>&1 | Out-Null
     }
     Remove-Item -Recurse -Force data, .env -ErrorAction SilentlyContinue
     Write-Host "Бот и все данные удалены." -ForegroundColor Green
@@ -266,7 +286,7 @@ function Show-Menu {
             "1" { Invoke-Update }
             "2" { Invoke-Reinstall }
             "3" { Invoke-ChangeToken }
-            "4" { & .\configure.ps1 }
+            "4" { Invoke-Configurator }
             "5" { Invoke-Remove; return }
             "0" { return }
             default { Write-Host "Введите число от 0 до 5." }
@@ -276,6 +296,9 @@ function Show-Menu {
 
 function Install-Aibot {
     $ErrorActionPreference = "Stop"
+    # Don't treat a native command's stderr / non-zero exit as a terminating
+    # error - docker writes normal progress to stderr (PowerShell 7.4+).
+    $PSNativeCommandUseErrorActionPreference = $false
     $RepoUrl = "https://github.com/MondayDecember/aibot-master.pro.git"
     $Dir = "aibot-master"
 
@@ -304,11 +327,18 @@ function Install-Aibot {
         Write-Host "Перенёс bot_data.db со старого пути в data\."
     }
 
-    if (Test-Path ".env") {
-        Show-Menu
-    } else {
+    if (-not (Test-Path ".env")) {
+        # No settings yet -> fresh install
         Write-Host "=== Установка aibot-master ===" -ForegroundColor Cyan
         Invoke-Wizard
+        Initialize-OllamaAndLaunch
+    } elseif (Test-BotInstalled) {
+        # Settings AND a bot container exist -> management menu
+        Show-Menu
+    } else {
+        # Settings exist but the bot was never launched (aborted setup) ->
+        # finish the install instead of pretending it's already installed
+        Write-Host "Настройки (.env) найдены, но бот ещё не запущен — завершаю установку..." -ForegroundColor Yellow
         Initialize-OllamaAndLaunch
     }
 }

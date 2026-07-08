@@ -314,15 +314,27 @@ main() {
         echo "Перенёс bot_data.db со старого пути в data/."
     fi
 
-    if [ -f .env ]; then
-        # Already installed -> management menu
-        show_menu
-    else
+    if [ ! -f .env ]; then
+        # No settings yet -> fresh install
         echo "=== Установка aibot-master ==="
         run_wizard
         setup_ollama_and_launch
         print_done
+    elif bot_installed; then
+        # Settings AND a bot container exist -> management menu
+        show_menu
+    else
+        # Settings exist but the bot was never launched -> finish the install
+        echo "Настройки (.env) найдены, но бот ещё не запущен — завершаю установку..."
+        setup_ollama_and_launch
+        print_done
     fi
+}
+
+# "Installed" = the bot container has actually been created, not just an .env
+# left over from an aborted setup.
+bot_installed() {
+    [ -n "$(docker ps -a --filter 'name=^aiogram_bot$' -q 2>/dev/null)" ]
 }
 
 main
