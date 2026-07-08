@@ -30,6 +30,22 @@ set_backend_env() {
     echo "Записал IMAGEGEN_BACKEND=$1 в imagegen/.env"
 }
 
+set_model_env() {
+    # $1=model $2=steps $3=guidance. Turbo models want steps=1, guidance=0;
+    # full SDXL base needs many more steps and non-zero guidance to look
+    # right - using turbo settings on it would produce noise.
+    [ -f .env ] || { [ -f .env.example ] && cp .env.example .env || touch .env; }
+    for pair in "IMAGEGEN_MODEL=$1" "IMAGEGEN_STEPS=$2" "IMAGEGEN_GUIDANCE_SCALE=$3"; do
+        key=${pair%%=*}
+        if grep -qE "^\s*${key}=" .env; then
+            sed -i.bak "s|^[[:space:]]*${key}=.*|${pair}|" .env && rm -f .env.bak
+        else
+            echo "$pair" >> .env
+        fi
+    done
+    echo "Записал IMAGEGEN_MODEL=$1 (шагов: $2, guidance: $3) в imagegen/.env"
+}
+
 if command -v nvidia-smi >/dev/null 2>&1; then
     echo "Обнаружена видеокарта NVIDIA — ставлю ускоренный путь CUDA."
     printf "Версия CUDA-колёс: cu128 (50-й ряд/новые), cu124 (40/30) [cu128]: "
@@ -47,7 +63,20 @@ else
 fi
 
 echo ""
+echo "Какую модель генерации картинок использовать?"
+echo "  1) SD-Turbo - лёгкая (~1 ГБ), 1 шаг, пара секунд на картинку"
+echo "  2) SDXL-Turbo - заметно качественнее, всё ещё быстрая (~7 ГБ, 1-4 шага)"
+echo "  3) SDXL base - максимальное качество (~7 ГБ), но медленнее (20-30 шагов)"
+printf "Выбор [1]: "
+read -r model_choice || true
+case "$model_choice" in
+    2) set_model_env "stabilityai/sdxl-turbo" 1 0.0 ;;
+    3) set_model_env "stabilityai/stable-diffusion-xl-base-1.0" 30 7.0 ;;
+    *) set_model_env "stabilityai/sd-turbo" 1 0.0 ;;
+esac
+
+echo ""
 echo "=== Готово ==="
 echo "Запуск:  bash run.sh"
-echo "Модель (~1 ГБ для SD-Turbo) скачается при первом запросе картинки, не при старте."
+echo "Модель скачается при первом запросе картинки, не при старте."
 echo "Автозапуск вместе с системой — см. пример systemd-сервиса в README.md."

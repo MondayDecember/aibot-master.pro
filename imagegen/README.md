@@ -67,11 +67,19 @@ To have it start automatically with Windows, add `run.ps1` to Task Scheduler wit
 
 Environment variables (set before running `run.ps1`, or edit `app.py`):
 
+`install.ps1` / `install.sh` ask which of these three to set up; re-run the installer to switch later, or edit `.env` by hand.
+
+| Model | `IMAGEGEN_MODEL` | Size | `IMAGEGEN_STEPS` | `IMAGEGEN_GUIDANCE_SCALE` | Notes |
+|---|---|---|---|---|---|
+| SD-Turbo (default) | `stabilityai/sd-turbo` | ~1 GB | `1` | `0.0` | Fastest, lightest, decent quality. |
+| SDXL-Turbo | `stabilityai/sdxl-turbo` | ~7 GB | `1`-`4` | `0.0` | Noticeably better detail than SD-Turbo, still near-instant. |
+| SDXL base | `stabilityai/stable-diffusion-xl-base-1.0` | ~7 GB | `30` | `7.0` | Best quality of the three, but not turbo-distilled - takes tens of seconds per image instead of a few. |
+
 | Variable | Default | Meaning |
 |---|---|---|
-| `IMAGEGEN_MODEL` | `stabilityai/sd-turbo` | Any diffusers-compatible text-to-image model on Hugging Face. `stabilityai/sdxl-turbo` is a heavier, higher-quality alternative (~7 GB, slower). |
-| `IMAGEGEN_STEPS` | `1` | Inference steps. `sd-turbo`/`sdxl-turbo` are distilled for 1-4 steps - more steps mostly just costs time with these models. |
-| `IMAGEGEN_GUIDANCE_SCALE` | `0.0` | Turbo models are trained for guidance-free (CFG=0) generation. |
+| `IMAGEGEN_MODEL` | `stabilityai/sd-turbo` | Any diffusers-compatible text-to-image model on Hugging Face - see table above for the three built-in options. |
+| `IMAGEGEN_STEPS` | `1` | Inference steps. Must match the chosen model (see table) - turbo models are distilled for 1-4 steps, full SDXL base wants ~30. |
+| `IMAGEGEN_GUIDANCE_SCALE` | `0.0` | Turbo models are trained for guidance-free (CFG=0) generation; full SDXL base wants ~7.0. |
 | `IMAGEGEN_MAX_PROMPT_CHARS` | `500` | Prompts longer than this are truncated. |
 | `IMAGEGEN_BACKEND` | `auto` | `auto` (CUDA on NVIDIA, else DirectML, else CPU) or force `cuda` / `directml` / `cpu`. |
 | `IMAGEGEN_DEVICES` | `` (card 0) | Which GPUs to use: empty = card 0, `all` = every detected card, `0,1` = specific ones. |

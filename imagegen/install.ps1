@@ -24,6 +24,28 @@ function Set-BackendEnv {
     Write-Host "Записал IMAGEGEN_BACKEND=$Backend в imagegen\.env"
 }
 
+function Set-ModelEnv {
+    # Persist the chosen model + its recommended steps/guidance into
+    # imagegen/.env. Turbo models want steps=1, guidance=0; the full SDXL
+    # base model needs many more steps and non-zero guidance to look right -
+    # using turbo settings on it would produce noise.
+    param([string]$Model, [string]$Steps, [string]$Guidance)
+    if (-not (Test-Path .env)) {
+        if (Test-Path .env.example) { Copy-Item .env.example .env } else { New-Item -ItemType File .env | Out-Null }
+    }
+    $lines = Get-Content .env
+    foreach ($pair in @(@("IMAGEGEN_MODEL", $Model), @("IMAGEGEN_STEPS", $Steps), @("IMAGEGEN_GUIDANCE_SCALE", $Guidance))) {
+        $key, $val = $pair
+        if ($lines -match "^\s*$key=") {
+            $lines = $lines -replace "^\s*$key=.*", "$key=$val"
+        } else {
+            $lines += "$key=$val"
+        }
+    }
+    $lines | Set-Content .env
+    Write-Host "Записал IMAGEGEN_MODEL=$Model (шагов: $Steps, guidance: $Guidance) в imagegen\.env"
+}
+
 function Install-ImageGen {
     $ErrorActionPreference = "Stop"
 
@@ -81,9 +103,21 @@ function Install-ImageGen {
     }
 
     Write-Host ""
+    Write-Host "Какую модель генерации картинок использовать?" -ForegroundColor Cyan
+    Write-Host "  1) SD-Turbo - лёгкая (~1 ГБ), 1 шаг, пара секунд на картинку"
+    Write-Host "  2) SDXL-Turbo - заметно качественнее, всё ещё быстрая (~7 ГБ, 1-4 шага)"
+    Write-Host "  3) SDXL base - максимальное качество (~7 ГБ), но медленнее (20-30 шагов)"
+    $modelChoice = Read-Host "Выбор [1]"
+    switch ($modelChoice) {
+        "2" { Set-ModelEnv "stabilityai/sdxl-turbo" "1" "0.0" }
+        "3" { Set-ModelEnv "stabilityai/stable-diffusion-xl-base-1.0" "30" "7.0" }
+        default { Set-ModelEnv "stabilityai/sd-turbo" "1" "0.0" }
+    }
+
+    Write-Host ""
     Write-Host "=== Готово ===" -ForegroundColor Green
     Write-Host "Запуск:  .\run.ps1"
-    Write-Host "Модель (~1 ГБ) скачается при первом запросе картинки, не при старте сервиса."
+    Write-Host "Модель скачается при первом запросе картинки, не при старте сервиса."
     Write-Host ""
     Write-Host "Чтобы сервис поднимался вместе с Windows, добавьте .\run.ps1 в Планировщик заданий"
     Write-Host "(триггер 'При входе в систему'), как это обычно делают с Ollama."

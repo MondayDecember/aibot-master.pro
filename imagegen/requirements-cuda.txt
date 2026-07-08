@@ -2,8 +2,14 @@
 # by install.ps1 from the CUDA wheel index (--index-url .../cuXXX), because
 # the CUDA build isn't on PyPI. These are the rest, unpinned from the old
 # torch-directml==2.4.1 constraint so they work with a modern CUDA torch.
+#
+# transformers pinned below 5.0: diffusers (as of 0.39.0) builds SDXL's
+# second CLIP text encoder from a config that transformers 5.x's rewritten
+# CLIPTextConfig no longer resolves correctly, silently instantiating the
+# wrong (smaller) architecture and failing checkpoint loading with a mass
+# of MISMATCH shape errors. 4.x is the last line diffusers fully supports.
 diffusers>=0.31.0
-transformers>=4.46.0
+transformers>=4.46.0,<5.0.0
 accelerate>=0.34.0
 fastapi>=0.110.0
 uvicorn[standard]>=0.30.0

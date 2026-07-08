@@ -114,9 +114,23 @@ class _Worker:
             device = _make_device(self.backend, self.index)
             name = _device_name(self.backend, self.index)
             logger.info(f"Loading '{MODEL_ID}' onto {self.backend} device {self.index} ({name})...")
-            pipe = AutoPipelineForText2Image.from_pretrained(
-                MODEL_ID, torch_dtype=_dtype(self.backend), safety_checker=None
-            )
+            dtype = _dtype(self.backend)
+            kwargs = {"torch_dtype": dtype, "safety_checker": None}
+            pipe = None
+            if dtype == torch.float16:
+                # fp16-variant weights are ~half the download/RAM of the
+                # default fp32 files that get cast down anyway - skips
+                # briefly holding full fp32 copies of every component in
+                # system RAM while loading (observed to crash the process
+                # outright on a 32 GB host with SDXL base's ~10 GB fp32
+                # UNet). Not every repo publishes an fp16 variant, so fall
+                # back to the default files if this specific one doesn't.
+                try:
+                    pipe = AutoPipelineForText2Image.from_pretrained(MODEL_ID, variant="fp16", **kwargs)
+                except Exception as e:
+                    logger.info(f"No fp16-variant weights for '{MODEL_ID}' ({e}); using default weights")
+            if pipe is None:
+                pipe = AutoPipelineForText2Image.from_pretrained(MODEL_ID, **kwargs)
             pipe = pipe.to(device)
             # Cuts peak VRAM during the VAE decode step specifically (where
             # OOMs were observed with SDXL-Turbo) by processing the latents
