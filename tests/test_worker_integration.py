@@ -83,7 +83,7 @@ def test_streamed_text_job_end_to_end(monkeypatch):
     asyncio.run(init_db())
     asyncio.run(clear_history(31337))
 
-    async def fake_stream(prompt, history_id, context_type, model_override=None, system_prompt=None):
+    async def fake_stream(prompt, history_id, context_type, model_override=None, system_prompt=None, stats=None):
         for part in ("Привет", ", мир!"):
             yield part
 
@@ -103,7 +103,7 @@ def test_long_reply_is_split(monkeypatch):
     asyncio.run(init_db())
     asyncio.run(clear_history(31338))
 
-    async def fake_generate(prompt, history_id, context_type, model_override=None, system_prompt=None):
+    async def fake_generate(prompt, history_id, context_type, model_override=None, system_prompt=None, stats=None):
         return "x" * 9000
 
     bot, _ = _run(monkeypatch, [_job(31338)], generate=fake_generate)
@@ -118,7 +118,7 @@ def test_llm_failure_shows_error_not_crash(monkeypatch):
     asyncio.run(init_db())
     asyncio.run(clear_history(31339))
 
-    async def broken_stream(prompt, history_id, context_type, model_override=None, system_prompt=None):
+    async def broken_stream(prompt, history_id, context_type, model_override=None, system_prompt=None, stats=None):
         raise RuntimeError("ollama down")
         yield  # pragma: no cover - makes it an async generator
 
@@ -134,7 +134,7 @@ def test_regen_prompt_is_stored(monkeypatch):
     asyncio.run(init_db())
     asyncio.run(clear_history(31341))
 
-    async def fake_stream(prompt, history_id, context_type, model_override=None, system_prompt=None):
+    async def fake_stream(prompt, history_id, context_type, model_override=None, system_prompt=None, stats=None):
         yield "ответ"
 
     _, redis = _run(monkeypatch, [_job(31341, prompt="как дела?")], stream=fake_stream)
@@ -155,7 +155,7 @@ def test_stop_button_cuts_the_stream(monkeypatch):
 
     # The worker clears any stale stop flag before streaming, so simulate the
     # user tapping Stop mid-stream: set the flag after the first delta.
-    async def fake_stream(prompt, history_id, context_type, model_override=None, system_prompt=None):
+    async def fake_stream(prompt, history_id, context_type, model_override=None, system_prompt=None, stats=None):
         yield "начало "
         redis.store["stop:1:10"] = "1"
         yield "середина "
@@ -193,12 +193,32 @@ def test_custom_prompt_is_applied(monkeypatch):
 
     seen = {}
 
-    async def capture_stream(prompt, history_id, context_type, model_override=None, system_prompt=None):
+    async def capture_stream(prompt, history_id, context_type, model_override=None, system_prompt=None, stats=None):
         seen["system_prompt"] = system_prompt
         yield "ок"
 
     _run(monkeypatch, [_job(31350)], stream=capture_stream)
     assert "ВСЕГДА отвечай одним словом" in seen["system_prompt"]
+
+
+def test_token_footer_shown_and_not_stored(monkeypatch):
+    asyncio.run(init_db())
+    asyncio.run(clear_history(31351))
+    monkeypatch.setattr(worker, "SHOW_TOKENS", True)
+
+    async def fake_stream(prompt, history_id, context_type, model_override=None, system_prompt=None, stats=None):
+        if stats is not None:
+            stats["prompt_tokens"] = 12
+            stats["completion_tokens"] = 8
+            stats["total_tokens"] = 20
+        yield "готово"
+
+    bot, _ = _run(monkeypatch, [_job(31351)], stream=fake_stream)
+    # footer appears in the shown reply...
+    assert "20" in bot.edits[-1] and "🔢" in bot.edits[-1]
+    # ...but the stored history has the clean reply only
+    hist = asyncio.run(get_history(31351, limit=10))
+    assert hist[-1]["content"] == "готово"
 
 
 def test_summary_job_queued_after_threshold(monkeypatch):
@@ -207,7 +227,7 @@ def test_summary_job_queued_after_threshold(monkeypatch):
     asyncio.run(init_db())
     asyncio.run(clear_history(31340))
 
-    async def fake_generate(prompt, history_id, context_type, model_override=None, system_prompt=None):
+    async def fake_generate(prompt, history_id, context_type, model_override=None, system_prompt=None, stats=None):
         return "ok"
 
     jobs = [_job(31340) for _ in range(3)]

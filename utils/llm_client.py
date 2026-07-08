@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime
 from openai import AsyncOpenAI
-from config import OLLAMA_API_BASE, OLLAMA_API_KEY, TEXT_MODEL, VISION_MODEL, HISTORY_LIMIT, LONG_TERM_MEMORY, TIMEZONE, TZINFO
+from config import OLLAMA_API_BASE, OLLAMA_API_KEY, TEXT_MODEL, VISION_MODEL, HISTORY_LIMIT, LONG_TERM_MEMORY, TIMEZONE, TZINFO, MODEL_NUM_CTX
 from db.database import get_history, get_memory
 from utils.texts import t
 
@@ -12,6 +12,22 @@ client = AsyncOpenAI(
     base_url=OLLAMA_API_BASE,
     api_key=OLLAMA_API_KEY
 )
+
+# Extra options passed through to Ollama's OpenAI-compatible endpoint. num_ctx
+# raises the context window (Ollama's default is a small 2048/4096 that
+# truncates history). Other backends (LM Studio) ignore unknown options.
+_EXTRA_BODY = {"options": {"num_ctx": MODEL_NUM_CTX}} if MODEL_NUM_CTX > 0 else None
+
+
+def _fill_usage(stats, response):
+    """Copy token counts from an API response into the caller's stats dict."""
+    if stats is None:
+        return
+    usage = getattr(response, "usage", None)
+    if usage:
+        stats["prompt_tokens"] = getattr(usage, "prompt_tokens", 0) or 0
+        stats["completion_tokens"] = getattr(usage, "completion_tokens", 0) or 0
+        stats["total_tokens"] = getattr(usage, "total_tokens", 0) or 0
 
 async def _build_request(prompt, user_id, context_type, model_override, system_prompt):
     """
@@ -53,15 +69,19 @@ async def generate_response(
     context_type: str = "text",
     model_override: str = None,
     system_prompt: str = None,
+    stats: dict = None,
 ) -> str:
-    """Generate a complete response from the local LLM (non-streaming)."""
+    """Generate a complete response from the local LLM (non-streaming).
+    If `stats` is given, it's filled with prompt/completion/total tokens."""
     messages, model = await _build_request(prompt, user_id, context_type, model_override, system_prompt)
     try:
         response = await client.chat.completions.create(
             model=model,
             messages=messages,
-            temperature=0.7
+            temperature=0.7,
+            extra_body=_EXTRA_BODY,
         )
+        _fill_usage(stats, response)
         return response.choices[0].message.content
     except Exception as e:
         logger.error(f"LLM Client error: {e}")
@@ -73,20 +93,23 @@ async def stream_response(
     context_type: str = "text",
     model_override: str = None,
     system_prompt: str = None,
+    stats: dict = None,
 ):
     """
     Async generator yielding response text deltas as the LLM produces them.
     Unlike generate_response, errors propagate to the caller - the worker
-    turns them into a user-facing error message.
+    turns them into a user-facing error message. If `stats` is given, request
+    a usage summary and fill it from the final (choices-less) chunk.
     """
     messages, model = await _build_request(prompt, user_id, context_type, model_override, system_prompt)
-    stream = await client.chat.completions.create(
-        model=model,
-        messages=messages,
-        temperature=0.7,
-        stream=True
-    )
+    kwargs = {"model": model, "messages": messages, "temperature": 0.7, "stream": True,
+              "extra_body": _EXTRA_BODY}
+    if stats is not None:
+        kwargs["stream_options"] = {"include_usage": True}
+    stream = await client.chat.completions.create(**kwargs)
     async for chunk in stream:
+        if getattr(chunk, "usage", None):
+            _fill_usage(stats, chunk)
         if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
             yield chunk.choices[0].delta.content
 

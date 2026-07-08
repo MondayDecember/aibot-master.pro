@@ -123,6 +123,16 @@ TEXT_MODEL = os.getenv("TEXT_MODEL", "llama3")
 VISION_MODEL = os.getenv("VISION_MODEL", "llama3.2-vision")
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")
 
+# Model context window in tokens. Ollama defaults to a small 2048/4096 window
+# and silently truncates older messages - raising this is the real "memory"
+# knob (HISTORY_LIMIT only controls how many messages the bot SENDS). Passed
+# to the backend as an option; 0 = don't send (use the model's own default).
+# Bigger = remembers more but uses more RAM/VRAM.
+MODEL_NUM_CTX = int(os.getenv("MODEL_NUM_CTX", "0"))
+
+# Show a "🔢 tokens" footer under replies (prompt+completion). Off by default.
+SHOW_TOKENS = os.getenv("SHOW_TOKENS", "false").strip().lower() in ("1", "true", "yes", "on")
+
 # Voice replies: when a user sends a voice message, also reply with a
 # synthesized voice note (in addition to the text reply), using a local
 # neural TTS model (Piper - CPU-only, no GPU needed, ~0.2s per sentence).
@@ -216,6 +226,15 @@ PERSONAS = {
     "scientist": (
         "You are a meticulous scientist. Be precise, explain your reasoning, use "
         "technical language when it's warranted, but stay clear and easy to follow. "
+        "Always reply in the same language the user writes in."
+    ),
+    "coder": (
+        "You are a senior software engineer. Give professional, production-quality "
+        "answers: put code in triple-backtick ``` fenced blocks, add clear comments "
+        "explaining non-obvious parts, follow the language's idioms and best "
+        "practices, and briefly note edge cases, errors to handle, and security or "
+        "performance concerns when relevant. Prefer correct, complete, runnable code "
+        "over hand-waving. Keep prose around the code concise. "
         "Always reply in the same language the user writes in."
     ),
 }

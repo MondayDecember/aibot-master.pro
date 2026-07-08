@@ -7,7 +7,7 @@ import time
 from aiogram import Bot
 from aiogram.types import BufferedInputFile, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.chat_action import ChatActionSender
-from config import build_system_prompt, AUTO_WEB_SEARCH, STREAM_RESPONSES, STREAM_EDIT_INTERVAL, VOICE_REPLIES
+from config import build_system_prompt, AUTO_WEB_SEARCH, STREAM_RESPONSES, STREAM_EDIT_INTERVAL, VOICE_REPLIES, SHOW_TOKENS
 from utils.alerts import notify_admin
 from utils.llm_client import generate_response, stream_response, route_message
 from utils.memory import needs_summary, update_summary, summarize_history
@@ -275,6 +275,7 @@ async def process_queue(bot: Bot, redis_client):
                     # and guarantees the final edit differs from the last
                     # streamed preview).
                     stopped = False
+                    stats = {} if SHOW_TOKENS else None
                     async with ChatActionSender.typing(bot=bot, chat_id=chat_id):
                         # No streaming preview when the reply will be a voice
                         # note - the text would appear and then vanish
@@ -285,7 +286,8 @@ async def process_queue(bot: Bot, redis_client):
                             await redis_client.delete(stop_key)  # clear any stale flag
                             async for delta in stream_response(
                                 final_prompt, history_id, final_context_type,
-                                model_override=user_model, system_prompt=system_prompt
+                                model_override=user_model, system_prompt=system_prompt,
+                                stats=stats
                             ):
                                 response_text += delta
                                 now = time.monotonic()
@@ -314,7 +316,8 @@ async def process_queue(bot: Bot, redis_client):
                         else:
                             response_text = await generate_response(
                                 final_prompt, history_id, final_context_type,
-                                model_override=user_model, system_prompt=system_prompt
+                                model_override=user_model, system_prompt=system_prompt,
+                                stats=stats
                             )
                     # Persist the turn now, after history was fetched for generation,
                     # so the current message isn't duplicated into its own context.
@@ -350,6 +353,15 @@ async def process_queue(bot: Bot, redis_client):
                         (response_text or "").strip() or t("empty_response")
                     )
                     html_chunks = [_markdown_to_telegram_html(c) for c in chunks]
+                    # Token footer on the LAST chunk only, and only on the
+                    # displayed text - never stored in history.
+                    if stats and stats.get("total_tokens"):
+                        html_chunks[-1] += "\n\n" + t(
+                            "tokens_footer",
+                            prompt=stats.get("prompt_tokens", 0),
+                            completion=stats.get("completion_tokens", 0),
+                            total=stats.get("total_tokens", 0),
+                        )
 
                     # Voice reply REPLACES the text one (no duplicates); on
                     # any synthesis/send failure we fall back to plain text.
