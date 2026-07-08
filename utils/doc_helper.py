@@ -26,6 +26,52 @@ def _extract_pdf(data: bytes) -> str:
     return "\n".join((page.extract_text() or "") for page in reader.pages)
 
 
+def _extract_docx(data: bytes) -> str:
+    """Text from a Word .docx: paragraphs plus table cells, in order."""
+    from docx import Document as DocxDocument
+
+    doc = DocxDocument(io.BytesIO(data))
+    parts = [p.text for p in doc.paragraphs]
+    for table in doc.tables:
+        for row in table.rows:
+            cells = [c.text.strip() for c in row.cells if c.text.strip()]
+            if cells:
+                parts.append(" | ".join(cells))
+    return "\n".join(parts)
+
+
+def _decode_text(data: bytes) -> str:
+    """
+    Decode a text file of unknown encoding. Plain .decode('utf-8') mangled
+    Russian ANSI (Windows-1251) files into gibberish; here we detect the
+    encoding (charset-normalizer) and fall back through the usual Russian
+    suspects before giving up on a lossy replace.
+    """
+    # BOM-marked UTF variants decode cleanly and unambiguously first
+    for bom, enc in ((b"\xef\xbb\xbf", "utf-8-sig"),
+                     (b"\xff\xfe", "utf-16"), (b"\xfe\xff", "utf-16")):
+        if data.startswith(bom):
+            try:
+                return data.decode(enc)
+            except UnicodeDecodeError:
+                break
+    try:
+        from charset_normalizer import from_bytes
+        best = from_bytes(data).best()
+        if best is not None:
+            return str(best)
+    except Exception as e:
+        logger.debug(f"charset detection failed, falling back: {e}")
+    # Manual cascade: strict UTF-8, then Windows-1251 (Russian ANSI), then
+    # a never-fails latin-1 so we always return *something*.
+    for enc in ("utf-8", "cp1251", "latin-1"):
+        try:
+            return data.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return data.decode("utf-8", errors="replace")
+
+
 async def extract_document_text(bot: Bot, document: Document):
     """
     Download a telegram document and extract plain text from it.
@@ -36,7 +82,8 @@ async def extract_document_text(bot: Bot, document: Document):
         return None, t("doc_too_large")
 
     is_pdf = name.endswith(".pdf")
-    if not is_pdf and not name.endswith(TEXT_EXTENSIONS):
+    is_docx = name.endswith(".docx")
+    if not is_pdf and not is_docx and not name.endswith(TEXT_EXTENSIONS):
         return None, t("doc_unsupported")
 
     try:
@@ -49,11 +96,13 @@ async def extract_document_text(bot: Bot, document: Document):
         return None, t("doc_download_failed")
 
     try:
+        # PDF/DOCX parsing is CPU-bound - keep it off the event loop
         if is_pdf:
-            # PDF parsing is CPU-bound - keep it off the event loop
             text = await asyncio.to_thread(_extract_pdf, data)
+        elif is_docx:
+            text = await asyncio.to_thread(_extract_docx, data)
         else:
-            text = data.decode("utf-8", errors="replace")
+            text = await asyncio.to_thread(_decode_text, data)
     except Exception as e:
         logger.error(f"Failed to extract text from document '{name}': {e}")
         return None, t("doc_unreadable")

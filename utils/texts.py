@@ -39,8 +39,8 @@ _TEXTS = {
         "doc_default_caption": "Summarize this document.",
         "doc_too_large": "The file is too large - telegram bots can only download files up to 20 MB.",
         "doc_unsupported": (
-            "Unsupported file type. Send a PDF or a plain-text file "
-            "(.txt, .md, .csv, code files etc.)."
+            "Unsupported file type. Send a PDF, a Word .docx, or a plain-text "
+            "file (.txt, .md, .csv, code files etc.)."
         ),
         "doc_download_failed": "Sorry, failed to download the file from telegram.",
         "doc_unreadable": "Sorry, couldn't read this file - it may be corrupted.",
@@ -241,8 +241,8 @@ _TEXTS = {
         "doc_default_caption": "Кратко перескажи этот документ.",
         "doc_too_large": "Файл слишком большой — Telegram позволяет ботам скачивать файлы до 20 МБ.",
         "doc_unsupported": (
-            "Неподдерживаемый тип файла. Пришлите PDF или текстовый файл "
-            "(.txt, .md, .csv, файлы кода и т.п.)."
+            "Неподдерживаемый тип файла. Пришлите PDF, документ Word .docx "
+            "или текстовый файл (.txt, .md, .csv, файлы кода и т.п.)."
         ),
         "doc_download_failed": "Не удалось скачать файл из Telegram.",
         "doc_unreadable": "Не удалось прочитать файл — возможно, он повреждён.",
