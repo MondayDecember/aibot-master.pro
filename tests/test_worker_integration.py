@@ -201,6 +201,26 @@ def test_custom_prompt_is_applied(monkeypatch):
     assert "ВСЕГДА отвечай одним словом" in seen["system_prompt"]
 
 
+def test_usage_is_logged(monkeypatch):
+    import time
+    from db.database import get_usage_summary, prune_usage
+    asyncio.run(init_db())
+    asyncio.run(clear_history(31360))
+    asyncio.run(prune_usage(int(time.time()) + 1))  # wipe log
+    monkeypatch.setattr(worker, "USAGE_STATS", True)
+
+    async def fake_stream(prompt, history_id, context_type, model_override=None, system_prompt=None, stats=None):
+        if stats is not None:
+            stats["prompt_tokens"] = 7
+            stats["completion_tokens"] = 3
+            stats["total_tokens"] = 10
+        yield "ответ"
+
+    _run(monkeypatch, [_job(31360)], stream=fake_stream)
+    summary = asyncio.run(get_usage_summary(0))
+    assert summary["requests"] == 1 and summary["tokens"] == 10
+
+
 def test_token_footer_shown_and_not_stored(monkeypatch):
     asyncio.run(init_db())
     asyncio.run(clear_history(31351))

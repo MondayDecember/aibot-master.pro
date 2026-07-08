@@ -3,13 +3,14 @@ import json
 import os
 import random
 import re
+from datetime import datetime
 from aiogram import Router, F
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 from aiogram.filters import CommandStart, Command, CommandObject
-from config import AVAILABLE_MODELS, TEXT_MODEL, PERSONAS, DB_PATH, IMAGEGEN_ENABLED, VOICE_REPLIES, RATE_LIMIT_PER_MINUTE
-from db.database import add_message, clear_history, get_user_model, set_user_model, get_user_persona, set_user_persona, get_stats, list_reminders, delete_reminder, get_voice_pref, set_voice_pref, start_new_session, set_user_language, get_user_language, get_custom_prompt, set_custom_prompt
+from config import AVAILABLE_MODELS, TEXT_MODEL, PERSONAS, DB_PATH, IMAGEGEN_ENABLED, VOICE_REPLIES, RATE_LIMIT_PER_MINUTE, TZINFO
+from db.database import add_message, clear_history, get_user_model, set_user_model, get_user_persona, set_user_persona, get_stats, list_reminders, delete_reminder, get_voice_pref, set_voice_pref, start_new_session, set_user_language, get_user_language, get_custom_prompt, set_custom_prompt, get_usage_summary, get_recent_usage
 from task_queue.enqueue import enqueue_llm_job, over_rate_limit
 from utils.tts_helper import synthesize_speech
 from utils.admin import get_admin_id, set_admin_id, admin_is_env_locked
@@ -230,6 +231,29 @@ async def cmd_stats(message: Message, redis):
         await message.answer(t("stats_admin_only"))
         return
     await message.answer(await _stats_text(redis), parse_mode="HTML")
+
+@router.message(Command("usage"))
+async def cmd_usage(message: Message):
+    """Owner-only LLM usage log: totals + the last requests with tokens."""
+    admin_id = await get_admin_id()
+    if not admin_id or message.from_user.id != admin_id:
+        await message.answer(t("stats_admin_only"))
+        return
+    now = datetime.now(TZINFO)
+    today_start = int(now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
+    summary = await get_usage_summary(today_start)
+    recent = await get_recent_usage(10)
+    lines = [t("usage_header",
+               today_req=summary["today_requests"], today_tok=summary["today_tokens"],
+               total_req=summary["requests"], total_tok=summary["tokens"])]
+    if recent:
+        lines.append("")
+        lines.append(t("usage_recent_title"))
+        for r in recent:
+            when = datetime.fromtimestamp(r["ts"], TZINFO).strftime("%d.%m %H:%M")
+            model = (r["model"] or "?").split("/")[-1][:20]
+            lines.append(t("usage_row", when=when, model=model, total=r["total_tokens"]))
+    await message.answer("\n".join(lines), parse_mode="HTML")
 
 @router.message(Command("admin"))
 async def cmd_admin(message: Message, command: CommandObject):

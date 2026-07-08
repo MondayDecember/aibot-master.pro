@@ -133,6 +133,12 @@ MODEL_NUM_CTX = int(os.getenv("MODEL_NUM_CTX", "0"))
 # Show a "🔢 tokens" footer under replies (prompt+completion). Off by default.
 SHOW_TOKENS = os.getenv("SHOW_TOKENS", "false").strip().lower() in ("1", "true", "yes", "on")
 
+# Log every LLM reply (time, user, model, token counts) to the database so the
+# admin can review usage with /usage. Independent of SHOW_TOKENS.
+USAGE_STATS = os.getenv("USAGE_STATS", "true").strip().lower() in ("1", "true", "yes", "on")
+# Prune usage-log rows older than this many days (0 = keep forever).
+USAGE_RETENTION_DAYS = int(os.getenv("USAGE_RETENTION_DAYS", "90"))
+
 # Voice replies: when a user sends a voice message, also reply with a
 # synthesized voice note (in addition to the text reply), using a local
 # neural TTS model (Piper - CPU-only, no GPU needed, ~0.2s per sentence).

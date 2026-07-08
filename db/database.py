@@ -102,6 +102,20 @@ async def init_db():
             await db.execute("ALTER TABLE reminders ADD COLUMN repeat TEXT")
         except aiosqlite.OperationalError:
             pass
+        # Per-reply LLM usage log for /usage (time, who, model, token counts).
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS usage_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts INTEGER NOT NULL,
+                user_id INTEGER,
+                model TEXT,
+                context_type TEXT,
+                prompt_tokens INTEGER DEFAULT 0,
+                completion_tokens INTEGER DEFAULT 0,
+                total_tokens INTEGER DEFAULT 0
+            )
+        ''')
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_usage_ts ON usage_log(ts)")
         await db.commit()
         logger.info("Database initialized.")
 
@@ -280,6 +294,49 @@ async def delete_reminder(reminder_id: int, user_id: int) -> bool:
 async def mark_reminder_sent(reminder_id: int):
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute("UPDATE reminders SET sent = 1 WHERE id = ?", (reminder_id,))
+        await db.commit()
+
+async def add_usage(user_id: int, model: str, context_type: str,
+                    prompt_tokens: int, completion_tokens: int, total_tokens: int):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute(
+            "INSERT INTO usage_log (ts, user_id, model, context_type, "
+            "prompt_tokens, completion_tokens, total_tokens) VALUES "
+            "(strftime('%s','now'), ?, ?, ?, ?, ?, ?)",
+            (user_id, model, context_type, prompt_tokens, completion_tokens, total_tokens)
+        )
+        await db.commit()
+
+async def get_usage_summary(today_start_ts: int) -> Dict[str, int]:
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute(
+            "SELECT COUNT(*), COALESCE(SUM(total_tokens),0) FROM usage_log"
+        ) as cursor:
+            total_req, total_tok = await cursor.fetchone()
+        async with db.execute(
+            "SELECT COUNT(*), COALESCE(SUM(total_tokens),0) FROM usage_log WHERE ts >= ?",
+            (today_start_ts,)
+        ) as cursor:
+            today_req, today_tok = await cursor.fetchone()
+    return {"requests": total_req, "tokens": total_tok,
+            "today_requests": today_req, "today_tokens": today_tok}
+
+async def get_recent_usage(limit: int = 10) -> List[Dict]:
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute(
+            "SELECT ts, user_id, model, prompt_tokens, completion_tokens, total_tokens "
+            "FROM usage_log ORDER BY id DESC LIMIT ?", (limit,)
+        ) as cursor:
+            rows = await cursor.fetchall()
+    return [
+        {"ts": r[0], "user_id": r[1], "model": r[2], "prompt_tokens": r[3],
+         "completion_tokens": r[4], "total_tokens": r[5]}
+        for r in rows
+    ]
+
+async def prune_usage(before_ts: int):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute("DELETE FROM usage_log WHERE ts < ?", (before_ts,))
         await db.commit()
 
 async def get_setting(key: str):

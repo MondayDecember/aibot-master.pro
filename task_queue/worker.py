@@ -7,7 +7,7 @@ import time
 from aiogram import Bot
 from aiogram.types import BufferedInputFile, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.chat_action import ChatActionSender
-from config import build_system_prompt, AUTO_WEB_SEARCH, STREAM_RESPONSES, STREAM_EDIT_INTERVAL, VOICE_REPLIES, SHOW_TOKENS
+from config import build_system_prompt, AUTO_WEB_SEARCH, STREAM_RESPONSES, STREAM_EDIT_INTERVAL, VOICE_REPLIES, SHOW_TOKENS, USAGE_STATS, TEXT_MODEL, VISION_MODEL
 from utils.alerts import notify_admin
 from utils.llm_client import generate_response, stream_response, route_message
 from utils.memory import needs_summary, update_summary, summarize_history
@@ -15,7 +15,7 @@ from utils.reminders import parse_reminder, format_due
 from utils.texts import t, set_current_language
 from utils.tts_helper import synthesize_speech
 from utils.web_search import gather_web_context
-from db.database import get_history, add_message, add_reminder, get_user_model, get_user_persona, get_voice_pref, get_user_language, get_custom_prompt
+from db.database import get_history, add_message, add_reminder, get_user_model, get_user_persona, get_voice_pref, get_user_language, get_custom_prompt, add_usage
 
 logger = logging.getLogger(__name__)
 
@@ -275,7 +275,9 @@ async def process_queue(bot: Bot, redis_client):
                     # and guarantees the final edit differs from the last
                     # streamed preview).
                     stopped = False
-                    stats = {} if SHOW_TOKENS else None
+                    # Always collect usage so /usage can log it; the footer is
+                    # a separate SHOW_TOKENS toggle.
+                    stats = {}
                     async with ChatActionSender.typing(bot=bot, chat_id=chat_id):
                         # No streaming preview when the reply will be a voice
                         # note - the text would appear and then vanish
@@ -331,6 +333,16 @@ async def process_queue(bot: Bot, redis_client):
                         await add_message(history_id, "user", history_content)
                     await add_message(history_id, "assistant", response_text)
 
+                    # Log this request's token usage for /usage
+                    if USAGE_STATS and stats.get("total_tokens"):
+                        used_model = VISION_MODEL if context_type == "vision" else (user_model or TEXT_MODEL)
+                        await add_usage(
+                            user_id, used_model, context_type,
+                            stats.get("prompt_tokens", 0),
+                            stats.get("completion_tokens", 0),
+                            stats.get("total_tokens", 0),
+                        )
+
                     # Remember the user's prompt so the "↻ Regenerate" button
                     # can re-run it (text/voice only; 1h TTL).
                     offer_regen = bool(bot_message_id and context_type in ("text", "voice")
@@ -355,7 +367,7 @@ async def process_queue(bot: Bot, redis_client):
                     html_chunks = [_markdown_to_telegram_html(c) for c in chunks]
                     # Token footer on the LAST chunk only, and only on the
                     # displayed text - never stored in history.
-                    if stats and stats.get("total_tokens"):
+                    if SHOW_TOKENS and stats.get("total_tokens"):
                         html_chunks[-1] += "\n\n" + t(
                             "tokens_footer",
                             prompt=stats.get("prompt_tokens", 0),

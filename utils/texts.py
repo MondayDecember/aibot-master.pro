@@ -199,6 +199,14 @@ _TEXTS = {
         "summary_result": "📝 <b>Summary</b>\n{text}",
         "summary_empty": "Nothing to summarize yet - write a few messages first.",
         "desc_summary": "Summarize this dialog",
+        "usage_header": (
+            "📈 <b>LLM usage</b>\n"
+            "Today: <b>{today_req}</b> requests, <b>{today_tok}</b> tokens\n"
+            "All time: <b>{total_req}</b> requests, <b>{total_tok}</b> tokens"
+        ),
+        "usage_recent_title": "<b>Last requests:</b>",
+        "usage_row": "{when} · {model} · {total} tok",
+        "desc_usage": "LLM usage & tokens (admin)",
         "repeat_daily": "(every day)",
         "repeat_weekdays": "(on weekdays)",
         "repeat_weekly": "(every week)",
@@ -401,6 +409,14 @@ _TEXTS = {
         "summary_result": "📝 <b>Краткое содержание</b>\n{text}",
         "summary_empty": "Пока нечего суммировать — напишите пару сообщений.",
         "desc_summary": "Кратко о диалоге",
+        "usage_header": (
+            "📈 <b>Обращения к нейросети</b>\n"
+            "Сегодня: <b>{today_req}</b> запросов, <b>{today_tok}</b> токенов\n"
+            "Всего: <b>{total_req}</b> запросов, <b>{total_tok}</b> токенов"
+        ),
+        "usage_recent_title": "<b>Последние запросы:</b>",
+        "usage_row": "{when} · {model} · {total} ток.",
+        "desc_usage": "Обращения и токены (админ)",
         "repeat_daily": "(каждый день)",
         "repeat_weekdays": "(по будням)",
         "repeat_weekly": "(каждую неделю)",

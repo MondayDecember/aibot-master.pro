@@ -2,9 +2,11 @@ import asyncio
 import logging
 import os
 import sqlite3
+import time
 from datetime import datetime
 
-from config import DB_PATH, BACKUP_INTERVAL_HOURS, BACKUP_KEEP
+from config import DB_PATH, BACKUP_INTERVAL_HOURS, BACKUP_KEEP, USAGE_RETENTION_DAYS
+from db.database import prune_usage
 
 logger = logging.getLogger(__name__)
 
@@ -58,4 +60,10 @@ async def backup_loop():
             logger.info(f"Database backed up to {path}")
         except Exception as e:
             logger.error(f"Database backup failed: {e}")
+        # Trim the usage log so it can't grow forever
+        if USAGE_RETENTION_DAYS > 0:
+            try:
+                await prune_usage(int(time.time()) - USAGE_RETENTION_DAYS * 86400)
+            except Exception as e:
+                logger.warning(f"Usage-log prune failed: {e}")
         await asyncio.sleep(BACKUP_INTERVAL_HOURS * 3600)

@@ -90,6 +90,7 @@ async def setup_commands(bot: Bot):
         BotCommand(command="roll", description=t("desc_roll")),
         BotCommand(command="8ball", description=t("desc_8ball")),
         BotCommand(command="stats", description=t("desc_stats")),
+        BotCommand(command="usage", description=t("desc_usage")),
     ]
     # Only advertised when the separate imagegen service is configured -
     # otherwise it's a menu entry that always fails (see imagegen/README.md)
