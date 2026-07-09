@@ -7,6 +7,14 @@
 #
 # NOTE: everything lives inside functions - 'exit' in a script piped to iex
 # would close the user's whole PowerShell window, 'return' does not.
+#
+# Set once here (not per-function) so every docker call below is covered:
+# PowerShell 7.4+ defaults this to $true, which means a native command's
+# normal progress text on stderr (docker writes plenty, e.g. "Container
+# aiogram_bot Stopping") gets promoted into a terminating error and aborts
+# the script mid-command - observed to cut Invoke-Remove off after deleting
+# the containers but before removing the image/.env/data.
+$PSNativeCommandUseErrorActionPreference = $false
 
 function Set-EnvValue {
     param([string]$Key, [string]$Value)
@@ -296,9 +304,6 @@ function Show-Menu {
 
 function Install-Aibot {
     $ErrorActionPreference = "Stop"
-    # Don't treat a native command's stderr / non-zero exit as a terminating
-    # error - docker writes normal progress to stderr (PowerShell 7.4+).
-    $PSNativeCommandUseErrorActionPreference = $false
     $RepoUrl = "https://github.com/MondayDecember/aibot-master.pro.git"
     $Dir = "aibot-master"
 
