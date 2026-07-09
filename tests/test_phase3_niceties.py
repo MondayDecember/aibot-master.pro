@@ -1,5 +1,4 @@
 import asyncio
-import re
 
 from handlers.user_handlers import _ROLL_RE
 from db.database import init_db, get_custom_prompt, set_custom_prompt

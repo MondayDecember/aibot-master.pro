@@ -28,7 +28,7 @@ def test_set_value_uncomments_example_line():
     lines = set_value(sample(), "ALLOWED_USER_IDS", "42")
     assert "ALLOWED_USER_IDS=42" in lines
     # the commented example was replaced, not duplicated
-    assert not any(l.startswith("# ALLOWED_USER_IDS") for l in lines)
+    assert not any(line.startswith("# ALLOWED_USER_IDS") for line in lines)
 
 
 def test_set_value_appends_when_missing():
@@ -49,4 +49,4 @@ def test_roundtrip_enable_disable_enable():
     lines = comment_out(lines, "COMPOSE_FILE")
     lines = set_value(lines, "COMPOSE_FILE", "y")
     assert get_value(lines, "COMPOSE_FILE") == "y"
-    assert sum("COMPOSE_FILE" in l for l in lines) == 1
+    assert sum("COMPOSE_FILE" in line for line in lines) == 1

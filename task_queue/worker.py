@@ -15,7 +15,7 @@ from utils.reminders import parse_reminder, format_due
 from utils.texts import t, set_current_language
 from utils.tts_helper import synthesize_speech
 from utils.web_search import gather_web_context
-from db.database import get_history, add_message, add_reminder, get_user_model, get_user_persona, get_voice_pref, get_user_language, get_custom_prompt, add_usage
+from db.database import add_message, add_reminder, get_user_model, get_user_persona, get_voice_pref, get_user_language, get_custom_prompt, add_usage
 
 logger = logging.getLogger(__name__)
 
