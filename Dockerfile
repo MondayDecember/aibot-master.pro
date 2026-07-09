@@ -1,9 +1,11 @@
 FROM python:3.11-slim
 
 # Install system dependencies
-# ffmpeg is required by faster-whisper to process audio files
+# ffmpeg: required by faster-whisper to process audio files
+# tesseract-ocr (+ rus/eng data): lightweight CPU OCR used to pull text off
+# photos before sending them to the vision model (screenshots, documents)
 RUN apt-get update && \
-    apt-get install -y ffmpeg && \
+    apt-get install -y ffmpeg tesseract-ocr tesseract-ocr-rus tesseract-ocr-eng && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

@@ -123,6 +123,12 @@ TEXT_MODEL = os.getenv("TEXT_MODEL", "llama3")
 VISION_MODEL = os.getenv("VISION_MODEL", "llama3.2-vision")
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")
 
+# OCR: pull text off a photo with Tesseract (CPU, bundled in the image) before
+# it goes to the vision model, so screenshots / documents / error messages are
+# read reliably. OCR_LANGUAGES is a Tesseract lang string ("rus+eng").
+OCR_ENABLED = os.getenv("OCR_ENABLED", "true").strip().lower() in ("1", "true", "yes", "on")
+OCR_LANGUAGES = os.getenv("OCR_LANGUAGES", "rus+eng").strip() or "rus+eng"
+
 # Model context window in tokens. Ollama defaults to a small 2048/4096 window
 # and silently truncates older messages - raising this is the real "memory"
 # knob (HISTORY_LIMIT only controls how many messages the bot SENDS). Passed
