@@ -333,9 +333,14 @@ async def process_queue(bot: Bot, redis_client):
                         await add_message(history_id, "user", history_content)
                     await add_message(history_id, "assistant", response_text)
 
-                    # Log this request's token usage for /usage
+                    # Log this request's token usage for /usage. stats["model"]
+                    # is the model _resolve_model() actually used - not
+                    # necessarily VISION_MODEL/TEXT_MODEL/user_model, which can
+                    # be a stale name that isn't installed on the backend.
                     if USAGE_STATS and stats.get("total_tokens"):
-                        used_model = VISION_MODEL if context_type == "vision" else (user_model or TEXT_MODEL)
+                        used_model = stats.get("model") or (
+                            VISION_MODEL if context_type == "vision" else (user_model or TEXT_MODEL)
+                        )
                         await add_usage(
                             user_id, used_model, context_type,
                             stats.get("prompt_tokens", 0),

@@ -58,6 +58,8 @@ SETTINGS = [
      "Нужен отдельный запущенный сервис imagegen/ на хосте - см. imagegen/README.md."),
     ("IMAGEGEN_API_BASE", "Адрес сервиса генерации картинок", "str",
      "По умолчанию http://host.docker.internal:7861 - меняйте только если запустили imagegen на другом порту/хосте."),
+    ("IMAGEGEN_API_KEY", "Ключ доступа к сервису картинок", "str",
+     "Должен совпадать с IMAGEGEN_API_KEY в imagegen/.env. Пусто = без проверки (только для изолированного хоста)."),
 ]
 
 
@@ -177,7 +179,7 @@ def main():
             if key == "BOT_TOKEN" and current == "your_telegram_bot_token_here":
                 current = None  # untouched .env.example placeholder = not set
             shown = current if current not in (None, "") else "(не задано)"
-            if key == "BOT_TOKEN" and current and len(current) > 12:
+            if key in ("BOT_TOKEN", "IMAGEGEN_API_KEY") and current and len(current) > 12:
                 # Don't print the whole secret on screen
                 shown = current[:6] + "…" + current[-4:]
             print(f" {idx:2}. {title:<48} : {shown}")

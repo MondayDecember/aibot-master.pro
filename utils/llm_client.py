@@ -94,8 +94,11 @@ async def generate_response(
     stats: dict = None,
 ) -> str:
     """Generate a complete response from the local LLM (non-streaming).
-    If `stats` is given, it's filled with prompt/completion/total tokens."""
+    If `stats` is given, it's filled with prompt/completion/total tokens
+    and the actually-used model name (post _resolve_model fallback)."""
     messages, model = await _build_request(prompt, user_id, context_type, model_override, system_prompt)
+    if stats is not None:
+        stats["model"] = model
     try:
         response = await client.chat.completions.create(
             model=model,
@@ -124,6 +127,8 @@ async def stream_response(
     a usage summary and fill it from the final (choices-less) chunk.
     """
     messages, model = await _build_request(prompt, user_id, context_type, model_override, system_prompt)
+    if stats is not None:
+        stats["model"] = model
     kwargs = {"model": model, "messages": messages, "temperature": 0.7, "stream": True,
               "extra_body": _EXTRA_BODY}
     if stats is not None:

@@ -52,7 +52,7 @@ async def cmd_new(message: Message):
 @router.message(Command("whoami"))
 async def cmd_whoami(message: Message):
     uid = message.from_user.id
-    model = await get_user_model(uid) or TEXT_MODEL
+    model = await _resolve_model(await get_user_model(uid) or TEXT_MODEL)
     persona = await get_user_persona(uid) or "default"
     lang = await get_user_language(uid) or "—"
     voice = t("yes_word") if await get_voice_pref(uid) else t("no_word")

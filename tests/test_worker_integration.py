@@ -221,6 +221,31 @@ def test_usage_is_logged(monkeypatch):
     assert summary["requests"] == 1 and summary["tokens"] == 10
 
 
+def test_usage_logs_the_actually_used_model(monkeypatch):
+    # stats["model"] is what utils.llm_client._resolve_model() actually used,
+    # which can differ from the configured TEXT_MODEL when that model isn't
+    # installed on the backend - /usage must record the real one, not the
+    # (possibly broken) configured default.
+    import time
+    from db.database import get_recent_usage, prune_usage
+    asyncio.run(init_db())
+    asyncio.run(clear_history(31361))
+    asyncio.run(prune_usage(int(time.time()) + 1))  # wipe log
+    monkeypatch.setattr(worker, "USAGE_STATS", True)
+
+    async def fake_stream(prompt, history_id, context_type, model_override=None, system_prompt=None, stats=None):
+        if stats is not None:
+            stats["model"] = "actually-installed-model"
+            stats["prompt_tokens"] = 1
+            stats["completion_tokens"] = 1
+            stats["total_tokens"] = 2
+        yield "ответ"
+
+    _run(monkeypatch, [_job(31361)], stream=fake_stream)
+    recent = asyncio.run(get_recent_usage(1))
+    assert recent[0]["model"] == "actually-installed-model"
+
+
 def test_token_footer_shown_and_not_stored(monkeypatch):
     asyncio.run(init_db())
     asyncio.run(clear_history(31351))
