@@ -19,6 +19,7 @@ from utils.reminders import is_reminder_request, format_due
 from utils.reactions import react_seen
 from utils.imagegen_client import generate_image
 from utils.llm_backend import list_installed_models
+from utils.llm_client import _resolve_model
 from utils.texts import t, set_current_language
 from utils.web_search import gather_web_context
 
@@ -310,13 +311,24 @@ def _back_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=t("back"), callback_data="nav:main")]])
 
 async def _build_model_choices() -> dict:
-    """AVAILABLE_MODELS (friendly keys from MODEL_CHOICES in .env) plus every
-    model actually installed in Ollama that isn't already one of those
-    values - so a freshly `ollama pull`-ed model shows up in /model right
-    away, without editing .env and restarting the bot."""
-    choices = dict(AVAILABLE_MODELS)
+    """AVAILABLE_MODELS (friendly keys from MODEL_CHOICES in .env), filtered
+    down to models actually installed on the backend, plus every installed
+    model that isn't already one of those values - so switching between
+    /model entries always works, and a freshly `ollama pull`-ed model shows
+    up right away without editing .env and restarting the bot. If the
+    backend is unreachable (empty list), show the configured choices as-is
+    rather than hiding everything on a transient outage."""
+    installed = await list_installed_models()
+    if not installed:
+        return dict(AVAILABLE_MODELS)
+    installed_base = {name.split(":")[0] for name in installed}
+
+    def _is_installed(name: str) -> bool:
+        return name in installed or name.split(":")[0] in installed_base
+
+    choices = {key: name for key, name in AVAILABLE_MODELS.items() if _is_installed(name)}
     known = set(choices.values())
-    for name in await list_installed_models():
+    for name in installed:
         if name not in known:
             choices[_auto_key(name)] = name
     return choices
@@ -340,7 +352,7 @@ def _model_keyboard(current: str, choices: dict) -> InlineKeyboardMarkup:
 @router.message(Command("model"))
 async def cmd_model(message: Message):
     """Show current text model and let the user switch it (photo analysis is unaffected - it always uses VISION_MODEL)."""
-    current = await get_user_model(message.from_user.id) or TEXT_MODEL
+    current = await _resolve_model(await get_user_model(message.from_user.id) or TEXT_MODEL)
     choices = await _build_model_choices()
     await message.answer(
         t("current_model", model=current),
@@ -532,7 +544,7 @@ async def cb_nav_main(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "nav:model")
 async def cb_nav_model(callback: CallbackQuery):
-    current = await get_user_model(callback.from_user.id) or TEXT_MODEL
+    current = await _resolve_model(await get_user_model(callback.from_user.id) or TEXT_MODEL)
     choices = await _build_model_choices()
     await callback.message.edit_text(
         t("current_model", model=current),

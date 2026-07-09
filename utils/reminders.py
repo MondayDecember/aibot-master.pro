@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 
 from config import TEXT_MODEL, SUMMARY_MODEL, TIMEZONE, TZINFO
 from db.database import get_due_reminders, mark_reminder_sent, reschedule_reminder
-from utils.llm_client import client
+from utils.llm_client import client, _resolve_model
 from utils.texts import t
 
 logger = logging.getLogger(__name__)
@@ -100,7 +100,7 @@ async def parse_reminder(text: str, model: str = None):
     """(reminder_text, due_unix_ts, repeat) or None when the time can't be parsed."""
     now = now_local()
     response = await client.chat.completions.create(
-        model=model or SUMMARY_MODEL or TEXT_MODEL,
+        model=await _resolve_model(model or SUMMARY_MODEL or TEXT_MODEL),
         messages=[
             {
                 "role": "system",

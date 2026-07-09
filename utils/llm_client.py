@@ -19,6 +19,27 @@ client = AsyncOpenAI(
 _EXTRA_BODY = {"options": {"num_ctx": MODEL_NUM_CTX}} if MODEL_NUM_CTX > 0 else None
 
 
+_missing_model_warned = set()
+
+async def _resolve_model(name: str) -> str:
+    """Fall back to an actually-installed model if `name` isn't available,
+    so a stale TEXT_MODEL/VISION_MODEL (never pulled, or pulled then
+    removed) degrades to a working answer instead of erroring on every
+    single request. Local import to avoid a circular import - llm_backend
+    imports `client` from this module."""
+    from utils.llm_backend import list_installed_models
+    installed = await list_installed_models()
+    if not installed:
+        return name  # backend unreachable - nothing to fall back to
+    installed_base = {m.split(":")[0] for m in installed}
+    if name in installed or name.split(":")[0] in installed_base:
+        return name
+    fallback = installed[0]
+    if name not in _missing_model_warned:
+        _missing_model_warned.add(name)
+        logger.warning(f"Model '{name}' isn't installed on the LLM backend - falling back to '{fallback}'.")
+    return fallback
+
 def _fill_usage(stats, response):
     """Copy token counts from an API response into the caller's stats dict."""
     if stats is None:
@@ -61,6 +82,7 @@ async def _build_request(prompt, user_id, context_type, model_override, system_p
     messages = system_messages + history
     messages.append({"role": "user", "content": prompt})
     model = VISION_MODEL if context_type == "vision" else (model_override or TEXT_MODEL)
+    model = await _resolve_model(model)
     return messages, model
 
 async def generate_response(
@@ -153,7 +175,7 @@ async def route_message(prompt: str, model_override: str = None):
     """
     try:
         response = await client.chat.completions.create(
-            model=model_override or TEXT_MODEL,
+            model=await _resolve_model(model_override or TEXT_MODEL),
             messages=[
                 {"role": "system", "content": _ROUTER_SYSTEM},
                 {"role": "user", "content": prompt}
