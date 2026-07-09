@@ -16,6 +16,27 @@
 # the containers but before removing the image/.env/data.
 $PSNativeCommandUseErrorActionPreference = $false
 
+# Rough download sizes (GB) for the models offered below - used to warn
+# before recommending or pulling one that won't fit on the models drive.
+$ModelSizeGb = @{
+    "llama3.2:3b" = 2; "llama3" = 5; "qwen2.5:14b" = 9; "qwen2.5:32b" = 20
+    "llama3.2-vision" = 8; "qwen2.5vl:7b" = 6; "moondream" = 2
+}
+
+function Get-OllamaModelsPath {
+    if ($env:OLLAMA_MODELS) { return $env:OLLAMA_MODELS }
+    return Join-Path $env:USERPROFILE ".ollama\models"
+}
+
+function Get-FreeSpaceGb {
+    # $null if the path's drive can't be resolved (e.g. doesn't exist yet).
+    param([string]$Path)
+    $qualifier = Split-Path $Path -Qualifier -ErrorAction SilentlyContinue
+    if (-not $qualifier) { return $null }
+    try { return [math]::Round((New-Object System.IO.DriveInfo($qualifier)).AvailableFreeSpace / 1GB, 1) }
+    catch { return $null }
+}
+
 function Set-EnvValue {
     param([string]$Key, [string]$Value)
     (Get-Content .env) -replace "^#?\s*$Key=.*", "$Key=$Value" | Set-Content .env
@@ -68,7 +89,25 @@ function Invoke-Wizard {
     $au = Read-Host "Автообновление бота при выходе новых версий (Watchtower)? y/n [n]"
     if ($au -eq "y") { Set-EnvValue "COMPOSE_FILE" "docker-compose.yml;docker-compose.autoupdate.yml" }
 
-    # Pick models that actually fit this machine
+    # Where Ollama stores models - ask before recommending anything, since
+    # the recommendation itself depends on how much room is there.
+    Write-Host ""
+    $modelsPath = Get-OllamaModelsPath
+    $freeGb = Get-FreeSpaceGb $modelsPath
+    $freeNote = if ($null -ne $freeGb) { "свободно $freeGb ГБ" } else { "папка ещё не создана" }
+    Write-Host "Модели Ollama хранятся здесь: $modelsPath ($freeNote)."
+    $customPath = Read-Host "Указать другую папку/диск для них? Путь, или Enter чтобы оставить как есть"
+    if ($customPath) {
+        New-Item -ItemType Directory -Force -Path $customPath | Out-Null
+        [Environment]::SetEnvironmentVariable("OLLAMA_MODELS", $customPath, "User")
+        $env:OLLAMA_MODELS = $customPath
+        Write-Host "Записано: OLLAMA_MODELS=$customPath." -ForegroundColor Yellow
+        Write-Host "Чтобы Ollama начала использовать новую папку, перезапустите её (иконка в трее -> Quit, затем запустить снова) перед скачиванием моделей." -ForegroundColor Yellow
+        $modelsPath = $customPath
+        $freeGb = Get-FreeSpaceGb $modelsPath
+    }
+
+    # Pick models that actually fit this machine - both RAM and disk space.
     $memGb = 0
     try { $memGb = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB) } catch {}
     $gpuNote = ""
@@ -78,37 +117,54 @@ function Invoke-Wizard {
         }
     } catch {}
 
-    $rec = if ($memGb -lt 8) { "1" } elseif ($memGb -lt 16) { "2" } elseif ($memGb -lt 32) { "3" } else { "4" }
+    $textModelMap = @{ "1" = "llama3.2:3b"; "2" = "llama3"; "3" = "qwen2.5:14b"; "4" = "qwen2.5:32b" }
+    $ramRec = if ($memGb -lt 8) { "1" } elseif ($memGb -lt 16) { "2" } elseif ($memGb -le 32) { "3" } else { "4" }
+    # Step down from the RAM-based pick while it wouldn't fit on disk
+    # (+2 GB headroom for the OS/other apps) - a recommendation the drive
+    # can't actually hold is worse than no recommendation.
+    $rec = $ramRec
+    while ([int]$rec -gt 1 -and $null -ne $freeGb -and ($ModelSizeGb[$textModelMap[$rec]] + 2) -gt $freeGb) {
+        $rec = [string]([int]$rec - 1)
+    }
+    $diskNote = if ($rec -ne $ramRec) { " (модель $($textModelMap[$ramRec]) не рекомендую - не хватит места на диске)" } else { "" }
     Write-Host ""
     Write-Host "Ваша система: ОЗУ $memGb ГБ$gpuNote."
     Write-Host "Текстовая модель (мозг бота):"
-    Write-Host "  1) llama3.2:3b — лёгкая и быстрая (~4 ГБ ОЗУ)"
-    Write-Host "  2) llama3 (8B) — баланс качества и скорости (~8 ГБ ОЗУ)"
-    Write-Host "  3) qwen2.5:14b — заметно умнее (~12–16 ГБ ОЗУ)"
-    Write-Host "  4) qwen2.5:32b — максимум качества (~24+ ГБ ОЗУ)"
-    $modelChoice = Read-Host "Выбор [$rec — рекомендуется для вашей системы]"
+    Write-Host "  1) llama3.2:3b — лёгкая и быстрая (~2 ГБ на диске, ~4 ГБ ОЗУ)"
+    Write-Host "  2) llama3 (8B) — баланс качества и скорости (~5 ГБ на диске, ~8 ГБ ОЗУ)"
+    Write-Host "  3) qwen2.5:14b — заметно умнее (~9 ГБ на диске, ~12–16 ГБ ОЗУ)"
+    Write-Host "  4) qwen2.5:32b — максимум качества (~20 ГБ на диске, ~24+ ГБ ОЗУ)"
+    $modelChoice = Read-Host "Выбор [$rec — рекомендуется для вашей системы$diskNote]"
     if (-not $modelChoice) { $modelChoice = $rec }
-    $textModelMap = @{ "1" = "llama3.2:3b"; "3" = "qwen2.5:14b"; "4" = "qwen2.5:32b" }
     if ($textModelMap.ContainsKey($modelChoice)) { Set-EnvValue "TEXT_MODEL" $textModelMap[$modelChoice] }
 
-    $visionRec = if ($memGb -lt 8) { "3" } else { "2" }
+    $visionModelMap = @{ "1" = "llama3.2-vision"; "2" = "qwen2.5vl:7b"; "3" = "moondream" }
+    $visionRamRec = if ($memGb -lt 8) { "3" } else { "2" }
+    $visionRec = $visionRamRec
+    while ([int]$visionRec -gt 1 -and $null -ne $freeGb -and ($ModelSizeGb[$visionModelMap[$visionRec]] + 2) -gt $freeGb) {
+        $visionRec = [string]([int]$visionRec - 1)
+    }
     Write-Host ""
     Write-Host "Модель для анализа фото (vision) - бот распознаёт, что на картинке, а не рисует их:"
-    Write-Host "  1) llama3.2-vision (11B) - от Meta, надёжный универсальный выбор (~10 ГБ ОЗУ)"
-    Write-Host "  2) qwen2.5vl:7b - легче и часто точнее на бенчмарках (~6 ГБ ОЗУ)"
-    Write-Host "  3) moondream - совсем лёгкая и быстрая, слабее качеством - для слабого железа (~3 ГБ ОЗУ)"
+    Write-Host "  1) llama3.2-vision (11B) - от Meta, надёжный универсальный выбор (~8 ГБ на диске, ~10 ГБ ОЗУ)"
+    Write-Host "  2) qwen2.5vl:7b - легче и часто точнее на бенчмарках (~6 ГБ на диске, ~6 ГБ ОЗУ)"
+    Write-Host "  3) moondream - совсем лёгкая и быстрая, слабее качеством - для слабого железа (~2 ГБ на диске, ~3 ГБ ОЗУ)"
     $visionChoice = Read-Host "Выбор [$visionRec — рекомендуется для вашей системы]"
     if (-not $visionChoice) { $visionChoice = $visionRec }
-    $visionModelMap = @{ "1" = "llama3.2-vision"; "2" = "qwen2.5vl:7b"; "3" = "moondream" }
     $chosenVision = if ($visionModelMap.ContainsKey($visionChoice)) { $visionModelMap[$visionChoice] } else { "qwen2.5vl:7b" }
     Set-EnvValue "VISION_MODEL" $chosenVision
 }
 
 function Invoke-PullModel {
     param([bool]$Docker, [string]$Model)
-    Write-Host "Скачиваю $Model (может занять время, модель большая)..."
+    $sizeNote = if ($ModelSizeGb.ContainsKey($Model)) { " (~$($ModelSizeGb[$Model]) ГБ, покажется прогресс скачивания ниже)" } else { " (размер неизвестен, покажется прогресс скачивания ниже)" }
+    Write-Host "Скачиваю $Model$sizeNote..."
+    # Not redirected/suppressed on purpose - 'ollama pull' draws its own
+    # live progress bar (%, speed, ETA) on this same console.
     if ($Docker) { docker compose exec ollama ollama pull $Model }
     else { ollama pull $Model }
+    if ($LASTEXITCODE -eq 0) { Write-Host "$Model скачана." -ForegroundColor Green }
+    else { Write-Host "Скачивание $Model завершилось с ошибкой (код $LASTEXITCODE) - см. вывод выше." -ForegroundColor Red }
 }
 
 # Ask which models to download now, then pull them.

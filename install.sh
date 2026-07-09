@@ -13,6 +13,31 @@ DIR="aibot-master"
 # portable in-place sed (GNU and BSD/macOS)
 sed_i() { sed -i.bak "$1" "$2" && rm -f "$2.bak"; }
 
+# Rough download sizes (GB) for the models offered below - used to warn
+# before recommending or pulling one that won't fit on the models drive.
+# A function (not an associative array) for bash 3.2 compat (macOS default).
+model_size_gb() {
+    case "$1" in
+        "llama3.2:3b") echo 2 ;;
+        "llama3") echo 5 ;;
+        "qwen2.5:14b") echo 9 ;;
+        "qwen2.5:32b") echo 20 ;;
+        "llama3.2-vision") echo 8 ;;
+        "qwen2.5vl:7b") echo 6 ;;
+        "moondream") echo 2 ;;
+        *) echo "" ;;
+    esac
+}
+
+ollama_models_path() { echo "${OLLAMA_MODELS:-$HOME/.ollama/models}"; }
+
+free_space_gb() {
+    # $1 = path (may not exist yet - walk up to the nearest existing dir)
+    local p="$1"
+    while [ ! -d "$p" ] && [ "$p" != "/" ]; do p=$(dirname "$p"); done
+    df -Pk "$p" 2>/dev/null | awk 'NR==2 {printf "%d", $4/1024/1024}'
+}
+
 require_docker() {
     command -v docker >/dev/null 2>&1 || {
         echo "Ошибка: Docker не установлен. См. https://docs.docker.com/engine/install/"
@@ -61,7 +86,26 @@ run_wizard() {
         sed_i "s|^# COMPOSE_FILE=.*|COMPOSE_FILE=docker-compose.yml:docker-compose.autoupdate.yml|" .env
     fi
 
-    # Pick models that actually fit this machine
+    # Where Ollama stores models - ask before recommending anything, since
+    # the recommendation itself depends on how much room is there.
+    echo ""
+    models_path=$(ollama_models_path)
+    free_gb=$(free_space_gb "$models_path")
+    if [ -n "$free_gb" ]; then free_note="свободно ${free_gb} ГБ"; else free_note="папка ещё не создана"; fi
+    echo "Модели Ollama хранятся здесь: ${models_path} (${free_note})."
+    printf "Указать другую папку/диск для них? Путь, или Enter чтобы оставить как есть: "
+    read -r custom_path </dev/tty
+    if [ -n "$custom_path" ]; then
+        mkdir -p "$custom_path"
+        echo "Чтобы Ollama использовала эту папку, добавьте в свой ~/.bashrc (или ~/.zshrc):"
+        echo "  export OLLAMA_MODELS=\"$custom_path\""
+        echo "...и перезапустите Ollama (systemctl restart ollama, либо заново её запустить) перед скачиванием моделей."
+        export OLLAMA_MODELS="$custom_path"
+        models_path="$custom_path"
+        free_gb=$(free_space_gb "$models_path")
+    fi
+
+    # Pick models that actually fit this machine - both RAM and disk space.
     mem_gb=0
     if [ -r /proc/meminfo ]; then
         mem_gb=$(( $(grep MemTotal /proc/meminfo | awk '{print $2}') / 1024 / 1024 ))
@@ -71,15 +115,33 @@ run_wizard() {
     gpu_note=""
     command -v nvidia-smi >/dev/null 2>&1 && gpu_note=", есть видеокарта NVIDIA (модели будут работать быстро)"
 
-    if [ "$mem_gb" -lt 8 ]; then rec=1; elif [ "$mem_gb" -lt 16 ]; then rec=2; elif [ "$mem_gb" -lt 32 ]; then rec=3; else rec=4; fi
+    text_model_for() {
+        case "$1" in
+            1) echo "llama3.2:3b" ;; 2) echo "llama3" ;;
+            3) echo "qwen2.5:14b" ;; 4) echo "qwen2.5:32b" ;;
+        esac
+    }
+    if [ "$mem_gb" -lt 8 ]; then ram_rec=1; elif [ "$mem_gb" -lt 16 ]; then ram_rec=2; elif [ "$mem_gb" -le 32 ]; then ram_rec=3; else ram_rec=4; fi
+    # Step down from the RAM-based pick while it wouldn't fit on disk (+2 GB
+    # headroom) - a recommendation the drive can't hold is worse than none.
+    rec=$ram_rec
+    if [ -n "$free_gb" ]; then
+        while [ "$rec" -gt 1 ]; do
+            need=$(( $(model_size_gb "$(text_model_for "$rec")") + 2 ))
+            [ "$need" -le "$free_gb" ] && break
+            rec=$((rec - 1))
+        done
+    fi
+    disk_note=""
+    [ "$rec" != "$ram_rec" ] && disk_note=" (модель $(text_model_for "$ram_rec") не рекомендую - не хватит места на диске)"
     echo ""
     echo "Ваша система: ОЗУ ${mem_gb} ГБ${gpu_note}."
     echo "Текстовая модель (мозг бота):"
-    echo "  1) llama3.2:3b — лёгкая и быстрая (~4 ГБ ОЗУ)"
-    echo "  2) llama3 (8B) — баланс качества и скорости (~8 ГБ ОЗУ)"
-    echo "  3) qwen2.5:14b — заметно умнее (~12–16 ГБ ОЗУ)"
-    echo "  4) qwen2.5:32b — максимум качества (~24+ ГБ ОЗУ)"
-    printf "Выбор [%s — рекомендуется для вашей системы]: " "$rec"
+    echo "  1) llama3.2:3b — лёгкая и быстрая (~2 ГБ на диске, ~4 ГБ ОЗУ)"
+    echo "  2) llama3 (8B) — баланс качества и скорости (~5 ГБ на диске, ~8 ГБ ОЗУ)"
+    echo "  3) qwen2.5:14b — заметно умнее (~9 ГБ на диске, ~12–16 ГБ ОЗУ)"
+    echo "  4) qwen2.5:32b — максимум качества (~20 ГБ на диске, ~24+ ГБ ОЗУ)"
+    printf "Выбор [%s — рекомендуется для вашей системы%s]: " "$rec" "$disk_note"
     read -r model_choice </dev/tty
     case "${model_choice:-$rec}" in
         1) sed_i "s|^TEXT_MODEL=.*|TEXT_MODEL=llama3.2:3b|" .env ;;
@@ -88,20 +150,27 @@ run_wizard() {
         *) : ;;  # 2 = llama3, already the default in .env.example
     esac
 
-    vision_rec=2
-    [ "$mem_gb" -lt 8 ] && vision_rec=3
+    vision_model_for() {
+        case "$1" in 1) echo "llama3.2-vision" ;; 3) echo "moondream" ;; *) echo "qwen2.5vl:7b" ;; esac
+    }
+    vision_ram_rec=2
+    [ "$mem_gb" -lt 8 ] && vision_ram_rec=3
+    vision_rec=$vision_ram_rec
+    if [ -n "$free_gb" ]; then
+        while [ "$vision_rec" -gt 1 ]; do
+            need=$(( $(model_size_gb "$(vision_model_for "$vision_rec")") + 2 ))
+            [ "$need" -le "$free_gb" ] && break
+            vision_rec=$((vision_rec - 1))
+        done
+    fi
     echo ""
     echo "Модель для анализа фото (vision) - бот распознаёт, что на картинке, а не рисует их:"
-    echo "  1) llama3.2-vision (11B) - от Meta, надёжный универсальный выбор (~10 ГБ ОЗУ)"
-    echo "  2) qwen2.5vl:7b - легче и часто точнее на бенчмарках (~6 ГБ ОЗУ)"
-    echo "  3) moondream - совсем лёгкая и быстрая, слабее качеством - для слабого железа (~3 ГБ ОЗУ)"
+    echo "  1) llama3.2-vision (11B) - от Meta, надёжный универсальный выбор (~8 ГБ на диске, ~10 ГБ ОЗУ)"
+    echo "  2) qwen2.5vl:7b - легче и часто точнее на бенчмарках (~6 ГБ на диске, ~6 ГБ ОЗУ)"
+    echo "  3) moondream - совсем лёгкая и быстрая, слабее качеством - для слабого железа (~2 ГБ на диске, ~3 ГБ ОЗУ)"
     printf "Выбор [%s — рекомендуется для вашей системы]: " "$vision_rec"
     read -r vision_choice </dev/tty
-    case "${vision_choice:-$vision_rec}" in
-        1) chosen_vision="llama3.2-vision" ;;
-        3) chosen_vision="moondream" ;;
-        *) chosen_vision="qwen2.5vl:7b" ;;
-    esac
+    chosen_vision=$(vision_model_for "${vision_choice:-$vision_rec}")
     sed_i "s|^VISION_MODEL=.*|VISION_MODEL=${chosen_vision}|" .env
 }
 
@@ -164,8 +233,16 @@ setup_ollama_and_launch() {
 
 pull_one() {
     # $1 = pull command prefix (multi-word, intentionally unquoted), $2 = model
-    echo "Скачиваю $2 (может занять время, модель большая)..."
-    $1 pull "$2"
+    size=$(model_size_gb "$2")
+    if [ -n "$size" ]; then size_note=" (~${size} ГБ, прогресс скачивания покажется ниже)"; else size_note=" (размер неизвестен, прогресс скачивания покажется ниже)"; fi
+    echo "Скачиваю $2${size_note}..."
+    # Not redirected/suppressed on purpose - 'ollama pull' draws its own
+    # live progress bar (%, speed, ETA) on this same terminal.
+    if $1 pull "$2"; then
+        echo "$2 скачана."
+    else
+        echo "Скачивание $2 завершилось с ошибкой - см. вывод выше."
+    fi
 }
 
 # Ask which models to download now, then pull them. $1 = pull command prefix

@@ -53,12 +53,12 @@ if command -v nvidia-smi >/dev/null 2>&1; then
     cuda=${cuda:-cu128}
     echo "Ставлю torch (CUDA $cuda) — несколько ГБ, займёт время..."
     ./venv/bin/python -m pip install torch --index-url "https://download.pytorch.org/whl/$cuda"
-    ./venv/bin/python -m pip install -q -r requirements-cuda.txt
+    ./venv/bin/python -m pip install -r requirements-cuda.txt
     set_backend_env cuda
 else
     echo "Видеокарта NVIDIA не найдена — ставлю CPU-режим (работает, но картинки медленные)."
-    ./venv/bin/python -m pip install -q torch
-    ./venv/bin/python -m pip install -q -r requirements-cuda.txt
+    ./venv/bin/python -m pip install torch
+    ./venv/bin/python -m pip install -r requirements-cuda.txt
     set_backend_env cpu
 fi
 

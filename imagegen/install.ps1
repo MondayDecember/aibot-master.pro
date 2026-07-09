@@ -94,11 +94,11 @@ function Install-ImageGen {
         if (-not $cuda) { $cuda = "cu128" }
         Write-Host "Ставлю torch (CUDA $cuda) - это несколько ГБ, займёт время..."
         .\venv\Scripts\python.exe -m pip install torch --index-url "https://download.pytorch.org/whl/$cuda"
-        .\venv\Scripts\python.exe -m pip install -q -r requirements-cuda.txt
+        .\venv\Scripts\python.exe -m pip install -r requirements-cuda.txt
         Set-BackendEnv "cuda"
     } else {
         Write-Host "Ставлю зависимости DirectML (torch скачается - несколько сотен МБ)..."
-        .\venv\Scripts\python.exe -m pip install -q -r requirements.txt
+        .\venv\Scripts\python.exe -m pip install -r requirements.txt
         Set-BackendEnv "directml"
     }
 
