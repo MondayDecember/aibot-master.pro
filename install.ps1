@@ -298,15 +298,29 @@ function Invoke-ChangeToken {
 }
 
 function Invoke-Remove {
+    # Known imagegen model repos (the only ones its own installer offers -
+    # see imagegen/install.ps1's model choice) - used below to find what's
+    # actually safe to delete from the *shared* HF cache without touching
+    # unrelated models some other tool might have cached there.
+    $ImagegenModelRepos = @(
+        "models--stabilityai--sd-turbo",
+        "models--stabilityai--sdxl-turbo",
+        "models--stabilityai--stable-diffusion-xl-base-1.0"
+    )
+
     Write-Host ""
     Write-Host "!!! ПОЛНОЕ УДАЛЕНИЕ !!!" -ForegroundColor Red
     Write-Host "Будет удалено БЕЗВОЗВРАТНО:"
     Write-Host "  • контейнеры бота и Redis (и Ollama, если она в docker);"
-    Write-Host "  • собранный docker-образ бота;"
+    Write-Host "  • docker-образ бота (собранный локально или подтянутый с ghcr.io);"
     Write-Host "  • история всех диалогов и напоминания;"
     Write-Host "  • настройки (.env) и все резервные копии в data\backups."
     Write-Host "Скачанные модели Ollama по умолчанию НЕ трогаются (чтобы не качать заново)."
     Write-Host "Саму программу Ollama установщик не удаляет — только docker-контейнер."
+    $hasImagegen = Test-Path "imagegen\venv"
+    if ($hasImagegen) {
+        Write-Host "Отдельно спрошу про сервис генерации картинок (imagegen) - venv и скачанные модели, обычно самое тяжёлое." -ForegroundColor Yellow
+    }
     $confirm = Read-Host "Точно удалить? Впишите 'delete' для подтверждения"
     if ($confirm -ne "delete") { Write-Host "Отменено — ничего не тронуто."; return }
 
@@ -321,8 +335,41 @@ function Invoke-Remove {
     } else {
         docker compose down --rmi local 2>&1 | Out-Null
     }
+    # --rmi local only removes an image docker compose *built* itself - in
+    # auto-update mode (COMPOSE_FILE set) the bot runs a *pulled* ghcr.io
+    # image instead, which --rmi local silently leaves behind. Remove it
+    # explicitly so "удалить образ" is true either way.
+    $ghcrImage = "ghcr.io/mondaydecember/aibot-master.pro:latest"
+    if (docker images -q $ghcrImage 2>$null) {
+        docker rmi $ghcrImage 2>&1 | Out-Null
+    }
     Remove-Item -Recurse -Force data, .env -ErrorAction SilentlyContinue
     Write-Host "Бот и все данные удалены." -ForegroundColor Green
+
+    if ($hasImagegen) {
+        $hfHub = Join-Path $env:USERPROFILE ".cache\huggingface\hub"
+        $modelDirs = @()
+        if (Test-Path $hfHub) {
+            $modelDirs = $ImagegenModelRepos | ForEach-Object { Join-Path $hfHub $_ } | Where-Object { Test-Path $_ }
+        }
+        $sizeGb = 0
+        Get-ChildItem "imagegen\venv" -Recurse -File -ErrorAction SilentlyContinue |
+            Measure-Object -Property Length -Sum | ForEach-Object { $sizeGb += $_.Sum }
+        foreach ($d in $modelDirs) {
+            Get-ChildItem $d -Recurse -File -ErrorAction SilentlyContinue |
+                Measure-Object -Property Length -Sum | ForEach-Object { $sizeGb += $_.Sum }
+        }
+        $sizeGb = [math]::Round($sizeGb / 1GB, 1)
+        $delImagegen = Read-Host "Удалить также imagegen - venv и скачанные модели (~$sizeGb ГБ)? y/n [n]"
+        if ($delImagegen -eq "y") {
+            Remove-Item -Recurse -Force "imagegen\venv" -ErrorAction SilentlyContinue
+            Remove-Item -Force "imagegen\.env" -ErrorAction SilentlyContinue
+            foreach ($d in $modelDirs) { Remove-Item -Recurse -Force $d -ErrorAction SilentlyContinue }
+            Write-Host "imagegen удалён (~$sizeGb ГБ освобождено)." -ForegroundColor Green
+        } else {
+            Write-Host "imagegen оставлен нетронутым."
+        }
+    }
 
     $delFolder = Read-Host "Удалить также саму папку с программой? y/n [n]"
     if ($delFolder -eq "y") {

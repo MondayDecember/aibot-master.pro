@@ -313,16 +313,25 @@ do_change_token() {
     echo "Готово."
 }
 
+# The only model repos imagegen's own installer offers (see
+# imagegen/install.sh's model choice) - used below to find what's safe to
+# delete from the *shared* HF cache without touching unrelated models some
+# other tool might have cached there.
+IMAGEGEN_MODEL_REPOS="models--stabilityai--sd-turbo models--stabilityai--sdxl-turbo models--stabilityai--stable-diffusion-xl-base-1.0"
+
 do_remove() {
     echo ""
     echo "!!! ПОЛНОЕ УДАЛЕНИЕ !!!"
     echo "Будет удалено БЕЗВОЗВРАТНО:"
     echo "  • контейнеры бота и Redis (и Ollama, если она в docker);"
-    echo "  • собранный docker-образ бота;"
+    echo "  • docker-образ бота (собранный локально или подтянутый с ghcr.io);"
     echo "  • история всех диалогов и напоминания;"
     echo "  • настройки (.env) и все резервные копии в data/backups."
     echo "Скачанные модели Ollama по умолчанию НЕ трогаются (чтобы не качать заново)."
     echo "Саму программу Ollama установщик не удаляет — только docker-контейнер."
+    has_imagegen=0
+    [ -d imagegen/venv ] && has_imagegen=1
+    [ "$has_imagegen" = "1" ] && echo "Отдельно спрошу про сервис генерации картинок (imagegen) - venv и скачанные модели, обычно самое тяжёлое."
     printf "Точно удалить? Впишите 'delete' для подтверждения: "
     read -r confirm </dev/tty
     [ "$confirm" = "delete" ] || { echo "Отменено — ничего не тронуто."; return; }
@@ -337,8 +346,32 @@ do_remove() {
     else
         docker compose down --rmi local 2>/dev/null || docker compose down 2>/dev/null || true
     fi
+    # --rmi local only removes an image docker compose *built* itself - in
+    # auto-update mode (COMPOSE_FILE set) the bot runs a *pulled* ghcr.io
+    # image instead, which --rmi local silently leaves behind.
+    ghcr_image="ghcr.io/mondaydecember/aibot-master.pro:latest"
+    [ -n "$(docker images -q "$ghcr_image" 2>/dev/null)" ] && docker rmi "$ghcr_image" >/dev/null 2>&1
     rm -rf data .env
     echo "Бот и все данные удалены."
+
+    if [ "$has_imagegen" = "1" ]; then
+        hf_hub="$HOME/.cache/huggingface/hub"
+        size_kb=0
+        [ -d imagegen/venv ] && size_kb=$(( size_kb + $(du -sk imagegen/venv 2>/dev/null | cut -f1) ))
+        for repo in $IMAGEGEN_MODEL_REPOS; do
+            [ -d "$hf_hub/$repo" ] && size_kb=$(( size_kb + $(du -sk "$hf_hub/$repo" 2>/dev/null | cut -f1) ))
+        done
+        size_gb=$(( size_kb / 1024 / 1024 ))
+        printf "Удалить также imagegen - venv и скачанные модели (~%s ГБ)? y/n [n]: " "$size_gb"
+        read -r delimagegen </dev/tty
+        if [ "${delimagegen:-n}" = "y" ]; then
+            rm -rf imagegen/venv imagegen/.env
+            for repo in $IMAGEGEN_MODEL_REPOS; do rm -rf "${hf_hub:?}/$repo"; done
+            echo "imagegen удалён (~${size_gb} ГБ освобождено)."
+        else
+            echo "imagegen оставлен нетронутым."
+        fi
+    fi
 
     printf "Удалить также саму папку с программой? y/n [n]: "
     read -r delfolder </dev/tty
