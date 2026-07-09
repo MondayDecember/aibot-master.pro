@@ -137,12 +137,18 @@ run_wizard() {
     echo ""
     echo "Ваша система: ОЗУ ${mem_gb} ГБ${gpu_note}."
     echo "Текстовая модель (мозг бота):"
+    echo "  0) Пропустить - модели пока не скачивать (бот запустится, скачаете позже)"
     echo "  1) llama3.2:3b — лёгкая и быстрая (~2 ГБ на диске, ~4 ГБ ОЗУ)"
     echo "  2) llama3 (8B) — баланс качества и скорости (~5 ГБ на диске, ~8 ГБ ОЗУ)"
     echo "  3) qwen2.5:14b — заметно умнее (~9 ГБ на диске, ~12–16 ГБ ОЗУ)"
     echo "  4) qwen2.5:32b — максимум качества (~20 ГБ на диске, ~24+ ГБ ОЗУ)"
     printf "Выбор [%s — рекомендуется для вашей системы%s]: " "$rec" "$disk_note"
     read -r model_choice </dev/tty
+    if [ "${model_choice:-$rec}" = "0" ]; then
+        SKIP_MODEL_DOWNLOAD=1
+        echo "Модели скачивать не будем сейчас - бот запустится без них."
+        return
+    fi
     case "${model_choice:-$rec}" in
         1) sed_i "s|^TEXT_MODEL=.*|TEXT_MODEL=llama3.2:3b|" .env ;;
         3) sed_i "s|^TEXT_MODEL=.*|TEXT_MODEL=qwen2.5:14b|" .env ;;
@@ -248,6 +254,10 @@ pull_one() {
 # Ask which models to download now, then pull them. $1 = pull command prefix
 # ("docker compose exec ollama ollama" or "ollama").
 choose_and_pull_models() {
+    if [ "${SKIP_MODEL_DOWNLOAD:-0}" = "1" ]; then
+        echo "Модели пропущены на предыдущем шаге. Позже: $1 pull $TEXT_MODEL; $1 pull $VISION_MODEL"
+        return
+    fi
     echo ""
     echo "Скачать нейросети сейчас? Это самый большой объём (модели по несколько ГБ)."
     echo "  1) Скачать обе: $TEXT_MODEL (текст) + $VISION_MODEL (фото) — рекомендуется"

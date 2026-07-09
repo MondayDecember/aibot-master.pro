@@ -22,6 +22,9 @@ $ModelSizeGb = @{
     "llama3.2:3b" = 2; "llama3" = 5; "qwen2.5:14b" = 9; "qwen2.5:32b" = 20
     "llama3.2-vision" = 8; "qwen2.5vl:7b" = 6; "moondream" = 2
 }
+# Set by Invoke-Wizard when the user picks "0) skip" at the model prompt;
+# read by Initialize-OllamaAndLaunch to skip Invoke-ModelDownload entirely.
+$script:SkipModelDownload = $false
 
 function Get-OllamaModelsPath {
     if ($env:OLLAMA_MODELS) { return $env:OLLAMA_MODELS }
@@ -130,12 +133,18 @@ function Invoke-Wizard {
     Write-Host ""
     Write-Host "Ваша система: ОЗУ $memGb ГБ$gpuNote."
     Write-Host "Текстовая модель (мозг бота):"
+    Write-Host "  0) Пропустить - модели пока не скачивать (бот запустится, скачаете позже)"
     Write-Host "  1) llama3.2:3b — лёгкая и быстрая (~2 ГБ на диске, ~4 ГБ ОЗУ)"
     Write-Host "  2) llama3 (8B) — баланс качества и скорости (~5 ГБ на диске, ~8 ГБ ОЗУ)"
     Write-Host "  3) qwen2.5:14b — заметно умнее (~9 ГБ на диске, ~12–16 ГБ ОЗУ)"
     Write-Host "  4) qwen2.5:32b — максимум качества (~20 ГБ на диске, ~24+ ГБ ОЗУ)"
     $modelChoice = Read-Host "Выбор [$rec — рекомендуется для вашей системы$diskNote]"
     if (-not $modelChoice) { $modelChoice = $rec }
+    if ($modelChoice -eq "0") {
+        $script:SkipModelDownload = $true
+        Write-Host "Модели скачивать не будем сейчас - бот запустится без них."
+        return
+    }
     if ($textModelMap.ContainsKey($modelChoice)) { Set-EnvValue "TEXT_MODEL" $textModelMap[$modelChoice] }
 
     $visionModelMap = @{ "1" = "llama3.2-vision"; "2" = "qwen2.5vl:7b"; "3" = "moondream" }
@@ -170,6 +179,10 @@ function Invoke-PullModel {
 # Ask which models to download now, then pull them.
 function Invoke-ModelDownload {
     param([bool]$Docker, [string]$TextModel, [string]$VisionModel)
+    if ($script:SkipModelDownload) {
+        Write-Host "Модели пропущены на предыдущем шаге. Позже: ollama pull $TextModel; ollama pull $VisionModel"
+        return
+    }
     Write-Host ""
     Write-Host "Скачать нейросети сейчас? Это самый большой объём (модели по несколько ГБ)."
     Write-Host "  1) Скачать обе: $TextModel (текст) + $VisionModel (фото) — рекомендуется"
