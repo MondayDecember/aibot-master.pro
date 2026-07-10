@@ -1,0 +1,77 @@
+diff --git a/config.py b/config.py
+index ac210e0..2a1a42d 100644
+--- a/config.py
++++ b/config.py
+@@ -62,6 +62,9 @@ BOT_LANGUAGE = os.getenv("BOT_LANGUAGE", "en").strip().lower()
+ # snippets alone. 0 = snippets only (old behaviour). More pages / more chars
+ # = better answers but a larger prompt: make sure the model's context window
+ # can take it (2 pages x 2000 chars is safe for the default 4k window).
++# SearXNG instance for web search (empty = use DuckDuckGo).
++# Example: http://192.168.1.1:8080/search
++SEARXNG_URL = os.getenv("SEARXNG_URL", "").strip()
+ WEB_FETCH_PAGES = int(os.getenv("WEB_FETCH_PAGES", "2"))
+ WEB_PAGE_MAX_CHARS = int(os.getenv("WEB_PAGE_MAX_CHARS", "2000"))
+ 
+diff --git a/utils/web_search.py b/utils/web_search.py
+index abf53e7..37ef997 100644
+--- a/utils/web_search.py
++++ b/utils/web_search.py
+@@ -6,9 +6,7 @@ from urllib.parse import urlparse
+ 
+ import aiohttp
+ from yarl import URL
+-from duckduckgo_search import DDGS
+-
+-from config import WEB_FETCH_PAGES, WEB_PAGE_MAX_CHARS
++from config import WEB_FETCH_PAGES, WEB_PAGE_MAX_CHARS, SEARXNG_URL
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -47,7 +45,7 @@ def _is_public_url(url: str) -> bool:
+ # prompt that was enough to blow a 4096-token model context and fail the
+ # whole request with a 400 'exceeds context size' error. This caps the
+ # *total* assembled context regardless of how those two settings are tuned.
+-MAX_TOTAL_WEB_CONTEXT_CHARS = 2500
++MAX_TOTAL_WEB_CONTEXT_CHARS = 8000
+ 
+ # A regular browser UA - some sites answer 403 to obvious bots/empty agents
+ _USER_AGENT = (
+@@ -59,8 +57,37 @@ _USER_AGENT = (
+ _MAX_PAGE_BYTES = 1_000_000
+ 
+ 
++def _searxng_search(query: str, max_results: int = 3) -> list:
++    """Blocking SearXNG search - call via asyncio.to_thread. Returns results
++    in the same shape DDGS.text() used (title/body/href) so the rest of the
++    module is untouched. Requires `json` in SearXNG settings.yml formats."""
++    import requests
++    r = requests.get(
++        SEARXNG_URL,
++        params={"q": query, "format": "json", "language": "ru"},
++        timeout=10,
++    )
++    r.raise_for_status()
++    return [
++        {
++            "title": x.get("title", ""),
++            "body": x.get("content", ""),
++            "href": x.get("url", ""),
++        }
++        for x in r.json().get("results", [])[:max_results]
++    ]
++
++
+ def _ddg_search(query: str, max_results: int = 3) -> list:
+-    """Blocking DuckDuckGo search - call via asyncio.to_thread."""
++    """Primary: local SearXNG (no ratelimits, routed through the router's
++    podkop). Fallback: DuckDuckGo, kept for setups without SEARXNG_URL or
++    when the instance is down."""
++    if SEARXNG_URL:
++        try:
++            return _searxng_search(query, max_results)
++        except Exception as e:
++            logger.warning(f"SearXNG search failed ({e}), falling back to DDG")
++    from duckduckgo_search import DDGS
+     with DDGS() as ddgs:
+         return list(ddgs.text(query, max_results=max_results))
+ 
