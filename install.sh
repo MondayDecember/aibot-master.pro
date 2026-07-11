@@ -178,6 +178,17 @@ run_wizard() {
     read -r vision_choice </dev/tty
     chosen_vision=$(vision_model_for "${vision_choice:-$vision_rec}")
     sed_i "s|^VISION_MODEL=.*|VISION_MODEL=${chosen_vision}|" .env
+
+    # One combined download decision right here, next to the choices that
+    # made it - not a second menu re-listing the same model names further
+    # down, once containers are already up. Actually pulling happens later
+    # in choose_and_pull_models (needs Ollama's location, decided after this).
+    text_model_chosen=$(text_model_for "${model_choice:-$rec}")
+    total_gb=$(( $(model_size_gb "$text_model_chosen") + $(model_size_gb "$chosen_vision") ))
+    echo ""
+    printf "Скачать эти модели сейчас (~%s ГБ, может занять время)? y/n [y]: " "$total_gb"
+    read -r dl </dev/tty
+    [ "${dl:-y}" = "n" ] && SKIP_MODEL_DOWNLOAD=1
 }
 
 # ---- launch containers + pull models ------------------------------------
@@ -251,27 +262,16 @@ pull_one() {
     fi
 }
 
-# Ask which models to download now, then pull them. $1 = pull command prefix
-# ("docker compose exec ollama ollama" or "ollama").
+# Pull both chosen models, or skip per the decision already made in
+# run_wizard (no re-asking - see SKIP_MODEL_DOWNLOAD there). $1 = pull
+# command prefix ("docker compose exec ollama ollama" or "ollama").
 choose_and_pull_models() {
     if [ "${SKIP_MODEL_DOWNLOAD:-0}" = "1" ]; then
         echo "Модели пропущены на предыдущем шаге. Позже: $1 pull $TEXT_MODEL; $1 pull $VISION_MODEL"
         return
     fi
-    echo ""
-    echo "Скачать нейросети сейчас? Это самый большой объём (модели по несколько ГБ)."
-    echo "  1) Скачать обе: $TEXT_MODEL (текст) + $VISION_MODEL (фото) — рекомендуется"
-    echo "  2) Только текстовую: $TEXT_MODEL"
-    echo "  3) Только для фото (vision): $VISION_MODEL"
-    echo "  4) Не скачивать сейчас (бот запустится, модели скачаете позже)"
-    printf "Выбор [1]: "
-    read -r dl </dev/tty
-    case "${dl:-1}" in
-        2) pull_one "$1" "$TEXT_MODEL" ;;
-        3) pull_one "$1" "$VISION_MODEL" ;;
-        4) echo "Пропущено. Позже скачать: $1 pull $TEXT_MODEL && $1 pull $VISION_MODEL" ;;
-        *) pull_one "$1" "$TEXT_MODEL"; pull_one "$1" "$VISION_MODEL" ;;
-    esac
+    pull_one "$1" "$TEXT_MODEL"
+    pull_one "$1" "$VISION_MODEL"
 }
 
 # Build+start, or pull+start in auto-update mode (COMPOSE_FILE set)

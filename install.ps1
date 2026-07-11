@@ -180,6 +180,18 @@ function Invoke-Wizard {
     if (-not $visionChoice) { $visionChoice = $visionRec }
     $chosenVision = if ($visionModelMap.ContainsKey($visionChoice)) { $visionModelMap[$visionChoice] } else { "qwen2.5vl:7b" }
     Set-EnvValue "VISION_MODEL" $chosenVision
+
+    # One combined download decision right here, next to the choices that
+    # made it - not a second menu re-listing the same model names further
+    # down, once containers are already up. Actually pulling happens later
+    # in Invoke-ModelDownload (needs Ollama's location, decided after this).
+    $textModelChosen = $textModelMap[$modelChoice]
+    $totalGb = 0
+    if ($ModelSizeGb.ContainsKey($textModelChosen)) { $totalGb += $ModelSizeGb[$textModelChosen] }
+    if ($ModelSizeGb.ContainsKey($chosenVision)) { $totalGb += $ModelSizeGb[$chosenVision] }
+    Write-Host ""
+    $dl = Read-Host "Скачать эти модели сейчас (~$totalGb ГБ, может занять время)? y/n [y]"
+    $script:SkipModelDownload = ($dl -eq "n")
 }
 
 function Invoke-PullModel {
@@ -194,30 +206,16 @@ function Invoke-PullModel {
     else { Write-Host "Скачивание $Model завершилось с ошибкой (код $LASTEXITCODE) - см. вывод выше." -ForegroundColor Red }
 }
 
-# Ask which models to download now, then pull them.
+# Pull both chosen models, or skip per the decision already made in
+# Invoke-Wizard (no re-asking - see SkipModelDownload there).
 function Invoke-ModelDownload {
     param([bool]$Docker, [string]$TextModel, [string]$VisionModel)
     if ($script:SkipModelDownload) {
         Write-Host "Модели пропущены на предыдущем шаге. Позже: ollama pull $TextModel; ollama pull $VisionModel"
         return
     }
-    Write-Host ""
-    Write-Host "Скачать нейросети сейчас? Это самый большой объём (модели по несколько ГБ)."
-    Write-Host "  1) Скачать обе: $TextModel (текст) + $VisionModel (фото) — рекомендуется"
-    Write-Host "  2) Только текстовую: $TextModel"
-    Write-Host "  3) Только для фото (vision): $VisionModel"
-    Write-Host "  4) Не скачивать сейчас (бот запустится, модели скачаете позже)"
-    $dl = Read-Host "Выбор [1]"
-    if (-not $dl) { $dl = "1" }
-    switch ($dl) {
-        "2" { Invoke-PullModel -Docker $Docker -Model $TextModel }
-        "3" { Invoke-PullModel -Docker $Docker -Model $VisionModel }
-        "4" { Write-Host "Пропущено. Позже скачаете модели командой ollama pull." }
-        default {
-            Invoke-PullModel -Docker $Docker -Model $TextModel
-            Invoke-PullModel -Docker $Docker -Model $VisionModel
-        }
-    }
+    Invoke-PullModel -Docker $Docker -Model $TextModel
+    Invoke-PullModel -Docker $Docker -Model $VisionModel
 }
 
 function Start-Containers {
