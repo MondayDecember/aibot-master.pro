@@ -118,12 +118,12 @@ def test_long_reply_is_split(monkeypatch):
     assert "".join(final_chunks) == "x" * 9000
 
 
-def test_long_reply_with_code_sends_code_as_a_file(monkeypatch):
+def test_long_reply_with_code_sends_it_as_a_message_not_a_file(monkeypatch):
     asyncio.run(init_db())
     asyncio.run(clear_history(31352))
 
-    code = "print('line')\n" * 400  # long enough to push the whole reply past the limit
-    reply = "Вот объяснение. " * 300 + f"\n```python\n{code}\n```\n"
+    code = "print('line')\n" * 400  # long enough to need its own multi-chunk split
+    reply = "Вот объяснение." + f"\n```python\n{code}\n```\n"
     assert len(reply) > worker.TELEGRAM_MESSAGE_LIMIT
 
     async def fake_generate(prompt, history_id, context_type, model_override=None, system_prompt=None, stats=None):
@@ -131,13 +131,13 @@ def test_long_reply_with_code_sends_code_as_a_file(monkeypatch):
 
     bot, _ = _run(monkeypatch, [_job(31352)], generate=fake_generate)
 
-    assert len(bot.documents) == 1
-    filename, data = bot.documents[0]
-    assert filename == "snippet.py"
-    assert data.decode("utf-8").strip() == code.strip()
-    # the code itself isn't repeated in the chat text - just a short note
-    all_text = " ".join([bot.edits[-1]] + bot.sent)
-    assert "print('line')" not in all_text
+    # no file attachments - code is delivered as ordinary message(s), after
+    # the (short, single-chunk) explanation that edited the placeholder
+    assert bot.documents == []
+    assert "Вот объяснение" in bot.edits[-1]
+    assert "print('line')" not in bot.edits[-1]
+    # the code made it through intact across however many messages it needed
+    assert "".join(bot.sent).count("print('line')") == 400
 
 
 def test_llm_failure_shows_error_not_crash(monkeypatch):

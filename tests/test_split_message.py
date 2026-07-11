@@ -1,5 +1,5 @@
 from task_queue.worker import (
-    _split_message, _extract_long_code_blocks, _code_filename,
+    _split_message, _extract_long_code_blocks,
     TELEGRAM_MESSAGE_LIMIT,
 )
 
@@ -28,8 +28,9 @@ def test_prefers_newline_boundaries():
     assert "\n".join(parts).replace("\n", "") == text.replace("\n", "")
 
 
-# --- _extract_long_code_blocks: pull code out as a file when the whole
-# reply would otherwise be split across several message bubbles ---
+# --- _extract_long_code_blocks: pull code out of the explanation so the
+# caller can rebuild it as its own message(s) when the whole reply would
+# otherwise be split mid-code across several message bubbles ---
 
 def _long_prose(n_chars):
     return ("Пояснение к коду. " * (n_chars // 19 + 1))[:n_chars]
@@ -82,20 +83,3 @@ def test_empty_code_fence_is_not_extracted():
     new_text, blocks = _extract_long_code_blocks(text)
     assert blocks == []
     assert "```" in new_text
-
-
-# --- _code_filename ---
-
-def test_code_filename_maps_known_language():
-    assert _code_filename("python", 1, 1) == "snippet.py"
-    assert _code_filename("cpp", 1, 1) == "snippet.cpp"
-
-
-def test_code_filename_unknown_language_falls_back_to_txt():
-    assert _code_filename("brainfuck", 1, 1) == "snippet.txt"
-    assert _code_filename("", 1, 1) == "snippet.txt"
-
-
-def test_code_filename_indexes_when_multiple():
-    assert _code_filename("python", 1, 2) == "snippet_1.py"
-    assert _code_filename("python", 2, 2) == "snippet_2.py"

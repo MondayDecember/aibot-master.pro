@@ -89,30 +89,17 @@ def _split_message(text: str, limit: int = TELEGRAM_MESSAGE_LIMIT) -> list[str]:
     return chunks
 
 # Fenced code block WITH its language tag captured separately (unlike
-# _MD_FENCE_RE above, which only needs the content for <pre> rendering).
+# _MD_FENCE_RE above, which only needs the content for <pre> rendering) -
+# the tag is kept so the re-fenced code below still renders as a code block.
 _CODE_FENCE_LANG_RE = re.compile(r"```([^\n`]*)\n?(.*?)```", re.S)
-
-_LANG_EXTENSIONS = {
-    "cpp": ".cpp", "c++": ".cpp", "cc": ".cpp", "c": ".c",
-    "python": ".py", "py": ".py",
-    "javascript": ".js", "js": ".js", "typescript": ".ts", "ts": ".ts",
-    "java": ".java", "csharp": ".cs", "c#": ".cs", "cs": ".cs",
-    "go": ".go", "golang": ".go", "rust": ".rs", "rs": ".rs",
-    "ruby": ".rb", "rb": ".rb", "php": ".php", "swift": ".swift",
-    "kotlin": ".kt", "kt": ".kt", "html": ".html", "css": ".css",
-    "sql": ".sql", "bash": ".sh", "sh": ".sh", "shell": ".sh",
-    "powershell": ".ps1", "ps1": ".ps1", "json": ".json",
-    "yaml": ".yaml", "yml": ".yaml", "xml": ".xml",
-}
 
 def _extract_long_code_blocks(text: str) -> tuple[str, list[tuple[str, str]]]:
     """
     When the reply is too long for one Telegram message AND contains fenced
-    code, pull the code out to send as file attachments instead - a
-    multi-thousand-character code block getting cut across 2-3 message
-    bubbles is far more annoying than the same code as one downloadable,
-    fully-intact file. Short replies that already fit are left untouched:
-    a small snippet is nicer to see inline than behind a tap.
+    code, pull the code out of the explanation so it can be rebuilt as its
+    own message(s) afterward (see the call site) instead of being cut
+    mid-way wherever the 4096-char limit happens to land inside it. Short
+    replies that already fit are left untouched.
     Returns (text_with_placeholders, [(language, code), ...]).
     """
     if len(text) <= TELEGRAM_MESSAGE_LIMIT or "```" not in text:
@@ -127,11 +114,6 @@ def _extract_long_code_blocks(text: str) -> tuple[str, list[tuple[str, str]]]:
         return t("code_attached")
     new_text = _CODE_FENCE_LANG_RE.sub(_pull, text)
     return new_text, blocks
-
-def _code_filename(lang: str, index: int, total: int) -> str:
-    ext = _LANG_EXTENSIONS.get(lang.lower(), ".txt")
-    suffix = f"_{index}" if total > 1 else ""
-    return f"snippet{suffix}{ext}"
 
 def _stop_kb(message_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
@@ -407,12 +389,13 @@ async def process_queue(bot: Bot, redis_client):
                             "history_id": history_id,
                         }))
                     
-                    # A long code block is better sent as an intact file than
-                    # cut across several message bubbles - pull it out before
-                    # splitting so the remaining text more often fits in one
-                    # message. code_files is sent after the text reply below.
+                    # A long code block reads better as its own message(s)
+                    # after the explanation than cut mid-way wherever the
+                    # 4096-char limit happens to land inside it - pull it out
+                    # before splitting the explanation, then rebuild it as
+                    # its own fenced chunk(s) below and append those after.
                     final_text = (response_text or "").strip() or t("empty_response")
-                    final_text, code_files = _extract_long_code_blocks(final_text)
+                    final_text, code_blocks = _extract_long_code_blocks(final_text)
 
                     # Split the RAW text first (on newline boundaries), THEN
                     # convert each chunk to HTML separately - converting
@@ -420,6 +403,14 @@ async def process_queue(bot: Bot, redis_client):
                     # inside an HTML tag. Telegram caps messages at 4096 chars.
                     chunks = _split_message(final_text)
                     html_chunks = [_markdown_to_telegram_html(c) for c in chunks]
+                    # Code extracted above, re-fenced and chunked the same
+                    # way, appended AFTER the explanation chunks - not read
+                    # aloud by the voice reply below (tts_text is built from
+                    # html_chunks only, before this concatenation).
+                    if code_blocks:
+                        code_text = "\n\n".join(f"```{lang}\n{code}\n```" for lang, code in code_blocks)
+                        code_chunks = _split_message(code_text)
+                        html_chunks += [_markdown_to_telegram_html(c) for c in code_chunks]
                     # Token footer on the LAST chunk only, and only on the
                     # displayed text - never stored in history.
                     if SHOW_TOKENS and stats.get("total_tokens"):
@@ -475,21 +466,6 @@ async def process_queue(bot: Bot, redis_client):
                             for i, chunk in enumerate(html_chunks):
                                 await _send_or_edit_html(bot, chat_id, bot_message_id, chunk,
                                                          edit=False, reply_markup=regen_kb if i == last else None)
-
-                    # Long code pulled out by _extract_long_code_blocks above -
-                    # send each as its own file after the text/voice reply, so
-                    # it reads as an attachment to what was just said.
-                    for i, (lang, code) in enumerate(code_files, start=1):
-                        try:
-                            await bot.send_document(
-                                chat_id,
-                                BufferedInputFile(
-                                    code.encode("utf-8"),
-                                    filename=_code_filename(lang, i, len(code_files)),
-                                ),
-                            )
-                        except Exception as e:
-                            logger.warning(f"Failed to send code file: {e}")
                 except Exception as e:
                     logger.error(f"Error generating response: {e}")
                     await notify_admin(bot, e)
