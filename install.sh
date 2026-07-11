@@ -434,9 +434,15 @@ main() {
         echo "Перенёс bot_data.db со старого пути в data/."
     fi
 
-    if [ ! -f .env ]; then
-        # No settings yet -> fresh install
-        echo "=== Установка aibot-master ==="
+    if ! env_configured; then
+        # No real settings yet (missing .env, or a stub left by an
+        # interrupted earlier run - see env_configured) -> run the wizard
+        # properly instead of silently launching with placeholder defaults.
+        if bot_installed; then
+            echo "Контейнер уже создан, но настройки (.env) не заполнены - похоже, прошлая установка прервалась. Прохожу мастер настройки заново."
+        else
+            echo "=== Установка aibot-master ==="
+        fi
         run_wizard
         setup_ollama_and_launch
         print_done
@@ -455,6 +461,20 @@ main() {
 # left over from an aborted setup.
 bot_installed() {
     [ -n "$(docker ps -a --filter 'name=^aiogram_bot$' -q 2>/dev/null)" ]
+}
+
+# run_wizard's very first line copies .env.example to .env BEFORE asking a
+# single question. If the wizard is interrupted right after that (closed
+# terminal, lost connection, Ctrl+C), a bare, unfilled .env is left behind,
+# indistinguishable from a finished setup by [ -f .env ] alone - a re-run
+# would then skip straight past BOT_TOKEN/admin/language/model questions and
+# launch with .env.example's placeholder defaults. BOT_TOKEN actually being
+# set is what really means "the wizard ran".
+env_configured() {
+    [ -f .env ] || return 1
+    local token
+    token=$(grep -E "^BOT_TOKEN=" .env | head -1 | cut -d= -f2- | tr -d '[:space:]')
+    [ -n "$token" ] && [ "$token" != "your_telegram_bot_token_here" ]
 }
 
 main

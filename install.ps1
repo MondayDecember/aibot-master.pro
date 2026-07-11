@@ -52,6 +52,22 @@ function Test-BotInstalled {
     return -not [string]::IsNullOrWhiteSpace($id)
 }
 
+function Test-EnvConfigured {
+    # Invoke-Wizard's very first line is 'Copy-Item .env.example .env' -
+    # BEFORE it asks a single question. If the wizard gets interrupted right
+    # after that (closed terminal, lost connection, Ctrl+C) a bare, unfilled
+    # .env is left behind, and Test-Path ".env" alone can't tell that apart
+    # from a properly finished setup - observed live: a re-run skipped
+    # straight past BOT_TOKEN/admin/language/model questions and launched
+    # with .env.example's placeholder defaults. BOT_TOKEN actually being set
+    # is what really means "the wizard ran".
+    if (-not (Test-Path ".env")) { return $false }
+    $line = Select-String -Path .env -Pattern "^BOT_TOKEN=(.+)" -ErrorAction SilentlyContinue
+    if (-not $line) { return $false }
+    $token = $line.Matches[0].Groups[1].Value.Trim()
+    return $token -and $token -ne "your_telegram_bot_token_here"
+}
+
 function Invoke-Configurator {
     # Run the settings menu inline (NOT & .\configure.ps1 - calling a .ps1
     # file is blocked by the execution policy, while this whole script ran
@@ -66,7 +82,9 @@ function Invoke-Configurator {
 }
 
 function Invoke-Wizard {
-    Copy-Item .env.example .env
+    # -Force: this may be re-running over a stub .env left by an interrupted
+    # earlier attempt (see Test-EnvConfigured) - nothing real to lose there.
+    Copy-Item .env.example .env -Force
     $token = Read-Host "Введите BOT_TOKEN (получить у @BotFather; Enter = пропустить и ввести позже)"
     if ($token) {
         Set-EnvValue "BOT_TOKEN" $token
@@ -448,9 +466,16 @@ function Install-Aibot {
         Write-Host "Перенёс bot_data.db со старого пути в data\."
     }
 
-    if (-not (Test-Path ".env")) {
-        # No settings yet -> fresh install
-        Write-Host "=== Установка aibot-master ===" -ForegroundColor Cyan
+    if (-not (Test-EnvConfigured)) {
+        # No real settings yet (either .env is missing, or it's a stub left
+        # by an interrupted earlier run - see Test-EnvConfigured) -> run the
+        # wizard properly instead of silently launching with placeholder
+        # defaults (empty BOT_TOKEN, no admin, wrong language/models).
+        if (Test-BotInstalled) {
+            Write-Host "Контейнер уже создан, но настройки (.env) не заполнены - похоже, прошлая установка прервалась. Прохожу мастер настройки заново." -ForegroundColor Yellow
+        } else {
+            Write-Host "=== Установка aibot-master ===" -ForegroundColor Cyan
+        }
         Invoke-Wizard
         Initialize-OllamaAndLaunch
     } elseif (Test-BotInstalled) {
