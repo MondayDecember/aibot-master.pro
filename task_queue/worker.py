@@ -90,8 +90,28 @@ def _split_message(text: str, limit: int = TELEGRAM_MESSAGE_LIMIT) -> list[str]:
 
 # Fenced code block WITH its language tag captured separately (unlike
 # _MD_FENCE_RE above, which only needs the content for <pre> rendering) -
-# the tag is kept so the re-fenced code below still renders as a code block.
+# the tag is kept so the re-fenced code below still renders as a code block,
+# and so the 📎-as-a-file button (handlers/user_handlers.py:cb_codefile) can
+# pick a sensible file extension.
 _CODE_FENCE_LANG_RE = re.compile(r"```([^\n`]*)\n?(.*?)```", re.S)
+
+LANG_EXTENSIONS = {
+    "cpp": ".cpp", "c++": ".cpp", "cc": ".cpp", "c": ".c",
+    "python": ".py", "py": ".py",
+    "javascript": ".js", "js": ".js", "typescript": ".ts", "ts": ".ts",
+    "java": ".java", "csharp": ".cs", "c#": ".cs", "cs": ".cs",
+    "go": ".go", "golang": ".go", "rust": ".rs", "rs": ".rs",
+    "ruby": ".rb", "rb": ".rb", "php": ".php", "swift": ".swift",
+    "kotlin": ".kt", "kt": ".kt", "html": ".html", "css": ".css",
+    "sql": ".sql", "bash": ".sh", "sh": ".sh", "shell": ".sh",
+    "powershell": ".ps1", "ps1": ".ps1", "json": ".json",
+    "yaml": ".yaml", "yml": ".yaml", "xml": ".xml",
+}
+
+def code_filename(lang: str, index: int, total: int) -> str:
+    ext = LANG_EXTENSIONS.get(lang.lower(), ".txt")
+    suffix = f"_{index}" if total > 1 else ""
+    return f"snippet{suffix}{ext}"
 
 def _extract_long_code_blocks(text: str) -> tuple[str, list[tuple[str, str]]]:
     """
@@ -120,13 +140,15 @@ def _stop_kb(message_id: int) -> InlineKeyboardMarkup:
         InlineKeyboardButton(text=t("btn_stop"), callback_data=f"stop:{message_id}")
     ]])
 
-def _reply_kb(regen: bool, voice: bool):
-    """Buttons under a finished reply: ↻ regenerate and/or 🔊 speak."""
+def _reply_kb(regen: bool, voice: bool, file: bool = False):
+    """Buttons under a finished reply: ↻ regenerate, 🔊 speak, 📎 code as a file."""
     row = []
     if regen:
         row.append(InlineKeyboardButton(text=t("btn_regen"), callback_data="regen"))
     if voice:
         row.append(InlineKeyboardButton(text=t("btn_voice"), callback_data="tts"))
+    if file:
+        row.append(InlineKeyboardButton(text=t("btn_file"), callback_data="codefile"))
     return InlineKeyboardMarkup(inline_keyboard=[row]) if row else None
 
 async def _try_edit(bot: Bot, chat_id: int, message_id: int, text: str,
@@ -166,21 +188,24 @@ async def _send_or_edit_html(bot: Bot, chat_id: int, message_id: int, text_html:
                              edit: bool, reply_markup=None):
     """Send/edit one chunk as HTML; fall back to tag-stripped plain text if
     Telegram rejects the markup (e.g. an unclosed tag from a Markdown token
-    that got split across message chunks)."""
+    that got split across message chunks). Returns the resulting Message -
+    callers that attach a message-id-keyed on-demand button (see the "file"
+    button below) need the real id, which for a newly *sent* chunk isn't
+    bot_message_id (that's only the original placeholder's id)."""
     try:
         if edit:
-            await bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text_html,
+            return await bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text_html,
                                         parse_mode="HTML", reply_markup=reply_markup)
         else:
-            await bot.send_message(chat_id, text_html, parse_mode="HTML", reply_markup=reply_markup)
+            return await bot.send_message(chat_id, text_html, parse_mode="HTML", reply_markup=reply_markup)
     except Exception as e:
         logger.warning(f"HTML send failed, falling back to plain text: {e}")
         plain = _HTML_TAG_RE.sub("", text_html)
         if edit:
-            await bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=plain,
+            return await bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=plain,
                                         reply_markup=reply_markup)
         else:
-            await bot.send_message(chat_id, plain, reply_markup=reply_markup)
+            return await bot.send_message(chat_id, plain, reply_markup=reply_markup)
 
 async def process_queue(bot: Bot, redis_client):
     """Background worker to process LLM requests from Redis queue."""
@@ -439,33 +464,50 @@ async def process_queue(bot: Bot, redis_client):
                     if not sent_as_voice:
                         # 🔊 speak-on-demand only on single-chunk text replies
                         # (needs a stable message id to stash the text under);
-                        # ↻ regenerate goes on the last chunk of any reply.
+                        # ↻ regenerate goes on the last chunk of any reply;
+                        # 📎 file-on-demand appears whenever code was pulled
+                        # out above, letting the user get it as a document
+                        # too instead of only the inline <pre> message.
                         single = len(html_chunks) == 1
                         offer_voice = bool(VOICE_REPLIES and bot_message_id and single
                                            and context_type in ("text", "voice"))
+                        offer_file = bool(code_blocks)
                         if offer_voice:
                             plain = _HTML_TAG_RE.sub("", html_chunks[0])
                             await redis_client.set(f"tts:{chat_id}:{bot_message_id}", plain, ex=3600)
                         last_kb = _reply_kb(offer_regen, offer_voice)
-                        regen_kb = _reply_kb(offer_regen, False)
+                        regen_kb = _reply_kb(offer_regen, False, offer_file)
                         last = len(html_chunks) - 1
+                        last_sent = None
                         if bot_message_id:
                             try:
-                                await _send_or_edit_html(bot, chat_id, bot_message_id, html_chunks[0],
+                                last_sent = await _send_or_edit_html(bot, chat_id, bot_message_id, html_chunks[0],
                                                          edit=True, reply_markup=last_kb if last == 0 else None)
                             except Exception as edit_error:
                                 # Placeholder gone (user deleted it)? Don't lose
                                 # the generated reply - send it as a new message.
                                 logger.warning(f"Final edit failed, sending anew: {edit_error}")
-                                await _send_or_edit_html(bot, chat_id, bot_message_id, html_chunks[0],
+                                last_sent = await _send_or_edit_html(bot, chat_id, bot_message_id, html_chunks[0],
                                                          edit=False, reply_markup=last_kb if last == 0 else None)
                             for i, chunk in enumerate(html_chunks[1:], start=1):
-                                await _send_or_edit_html(bot, chat_id, bot_message_id, chunk,
+                                last_sent = await _send_or_edit_html(bot, chat_id, bot_message_id, chunk,
                                                          edit=False, reply_markup=regen_kb if i == last else None)
                         else:
                             for i, chunk in enumerate(html_chunks):
-                                await _send_or_edit_html(bot, chat_id, bot_message_id, chunk,
+                                last_sent = await _send_or_edit_html(bot, chat_id, bot_message_id, chunk,
                                                          edit=False, reply_markup=regen_kb if i == last else None)
+
+                        # The 📎 button lives on whichever message last_sent
+                        # is now (a freshly sent one in the usual multi-chunk
+                        # case that code implies - bot_message_id would still
+                        # point at the original placeholder, not this one).
+                        if offer_file and last_sent is not None:
+                            file_message_id = getattr(last_sent, "message_id", bot_message_id)
+                            await redis_client.set(
+                                f"codefile:{chat_id}:{file_message_id}",
+                                json.dumps(code_blocks),
+                                ex=3600,
+                            )
                 except Exception as e:
                     logger.error(f"Error generating response: {e}")
                     await notify_admin(bot, e)

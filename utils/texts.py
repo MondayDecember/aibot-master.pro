@@ -185,6 +185,7 @@ _TEXTS = {
         "desc_roll": "Dice notation roll (2d6, d20+3)",
         "desc_8ball": "Magic 8-ball",
         "btn_voice": "🔊 Voice",
+        "btn_file": "📎 As a file",
         "whoami": (
             "🪪 <b>Your settings</b>\n"
             "ID: <code>{id}</code>\n"
@@ -397,6 +398,7 @@ _TEXTS = {
         "desc_roll": "Бросок кубиков (2d6, d20+3)",
         "desc_8ball": "Магический шар",
         "btn_voice": "🔊 Озвучить",
+        "btn_file": "📎 Файлом",
         "whoami": (
             "🪪 <b>Ваши настройки</b>\n"
             "ID: <code>{id}</code>\n"

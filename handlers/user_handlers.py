@@ -13,6 +13,7 @@ from config import AVAILABLE_MODELS, TEXT_MODEL, PERSONAS, DB_PATH, IMAGEGEN_ENA
 from db.database import add_message, clear_history, get_user_model, set_user_model, get_user_persona, set_user_persona, get_stats, list_reminders, delete_reminder, get_voice_pref, set_voice_pref, start_new_session, set_user_language, get_user_language, get_custom_prompt, set_custom_prompt, get_usage_summary, get_recent_usage
 from task_queue.enqueue import enqueue_llm_job, over_rate_limit
 from utils.tts_helper import synthesize_speech
+from task_queue.worker import code_filename
 from utils.admin import get_admin_id, set_admin_id, admin_is_env_locked
 from utils.group import gate_group_message, history_key, should_chime_in, CHATTER_PROMPT
 from utils.reminders import is_reminder_request, format_due
@@ -106,6 +107,23 @@ async def cb_tts(callback: CallbackQuery, redis):
     audio = await synthesize_speech(text)
     if audio:
         await callback.message.answer_voice(BufferedInputFile(audio, filename="reply.ogg"))
+
+@router.callback_query(F.data == "codefile")
+async def cb_codefile(callback: CallbackQuery, redis):
+    """Send a code block that arrived as a message as a file too, on demand
+    (📎 button) - the block itself was stashed by the worker keyed to this
+    exact message, so re-runs/edits of the same reply don't collide."""
+    raw = await redis.get(f"codefile:{callback.message.chat.id}:{callback.message.message_id}")
+    if not raw:
+        await callback.answer()
+        return
+    await callback.answer()
+    blocks = json.loads(raw)
+    total = len(blocks)
+    for i, (lang, code) in enumerate(blocks, start=1):
+        await callback.message.answer_document(
+            BufferedInputFile(code.encode("utf-8"), filename=code_filename(lang, i, total))
+        )
 
 @router.callback_query(F.data.startswith("stop:"))
 async def cb_stop(callback: CallbackQuery, redis):

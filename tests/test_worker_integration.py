@@ -34,17 +34,26 @@ class FakeRedis:
         self.store.pop(key, None)
 
 
+class _FakeMessage:
+    def __init__(self, message_id):
+        self.message_id = message_id
+
+
 class FakeBot:
     def __init__(self):
         self.edits = []
         self.sent = []
         self.documents = []
+        self._next_id = 1000  # newly *sent* messages get ids distinct from bot_message_id=10
 
     async def edit_message_text(self, chat_id=None, message_id=None, text=None, parse_mode=None, reply_markup=None):
         self.edits.append(text)
+        return _FakeMessage(message_id)
 
     async def send_message(self, chat_id, text, parse_mode=None, reply_markup=None):
         self.sent.append(text)
+        self._next_id += 1
+        return _FakeMessage(self._next_id)
 
     async def send_document(self, chat_id, document):
         self.documents.append((document.filename, document.data))
@@ -138,6 +147,31 @@ def test_long_reply_with_code_sends_it_as_a_message_not_a_file(monkeypatch):
     assert "print('line')" not in bot.edits[-1]
     # the code made it through intact across however many messages it needed
     assert "".join(bot.sent).count("print('line')") == 400
+
+
+def test_code_reply_offers_a_file_button_on_the_actual_last_message(monkeypatch):
+    """The 📎 button's data is stashed in redis keyed by the real message id
+    of the last-sent chunk - not bot_message_id, which is only the original
+    placeholder (see _send_or_edit_html's return value in worker.py)."""
+    asyncio.run(init_db())
+    asyncio.run(clear_history(31353))
+
+    code = "print('line')\n" * 400
+    reply = "Вот объяснение." + f"\n```python\n{code}\n```\n"
+
+    async def fake_generate(prompt, history_id, context_type, model_override=None, system_prompt=None, stats=None):
+        return reply
+
+    bot, redis = _run(monkeypatch, [_job(31353)], generate=fake_generate)
+
+    # bot_message_id (10) is the placeholder that got the explanation, not
+    # where the file button ended up
+    assert redis.store.get("codefile:1:10") is None
+    keys = [k for k in redis.store if k.startswith("codefile:1:")]
+    assert len(keys) == 1
+    blocks = json.loads(redis.store[keys[0]])
+    assert blocks[0][0] == "python"
+    assert blocks[0][1].strip() == code.strip()
 
 
 def test_llm_failure_shows_error_not_crash(monkeypatch):
