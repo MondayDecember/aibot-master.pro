@@ -156,11 +156,25 @@ _ROUTER_SYSTEM = (
     "мне забыть...\", \"remind me...\"). Only actual requests count - "
     "statements ABOUT reminders are not requests.\n"
     "SEARCH: <query> - answering needs current or real-time information "
-    "from the web (news, prices, weather, sports scores, recent releases, "
-    "live events, facts that change over time). The query must be plain "
-    "keywords a search engine understands well - no question words, no "
-    "question mark - in the same language as the user's message.\n"
-    "NO - anything else: general knowledge, coding help, conversation.\n"
+    "from the web: weather, news, prices, sports scores, exchange rates, "
+    "anything about a specific recent/upcoming product or release, or any "
+    "other fact that changes over time. This includes short topic phrases "
+    "with no question mark and no question word at all - \"погода в "
+    "Томске\" and \"weather in Tomsk\" both need SEARCH exactly as much as "
+    "\"what's the weather in Tomsk right now?\" does. When genuinely unsure "
+    "whether something counts as current/recent, prefer SEARCH over NO - a "
+    "wrong guess from your own training data is worse than one extra "
+    "search. The query must be plain keywords a search engine understands "
+    "well - no question words, no question mark - in the same language as "
+    "the user's message.\n"
+    "NO - anything else: general knowledge that doesn't change over time, "
+    "coding help, conversation, opinions.\n"
+    "Examples:\n"
+    "\"погода в томске\" -> SEARCH: погода Томск\n"
+    "\"курс доллара\" -> SEARCH: курс доллара\n"
+    "\"что лучше rtx 5060 ti или rx 7800 xt\" -> SEARCH: rtx 5060 ti vs rx 7800 xt сравнение\n"
+    "\"напиши сортировку пузырьком на питоне\" -> NO\n"
+    "\"напомни завтра в 9 позвонить маме\" -> REMIND\n"
     "Reply with only REMIND, SEARCH: <query>, or NO."
 )
 
@@ -198,11 +212,19 @@ async def route_message(prompt: str, model_override: str = None):
         answer = (response.choices[0].message.content or "").strip()
         upper = answer.upper()
         if upper.startswith("REMIND"):
+            logger.info(f"Router: {prompt[:80]!r} -> remind (raw: {answer[:80]!r})")
             return "remind", None
         # YES: kept for models that answer in the old pre-router format
         if upper.startswith("SEARCH") or upper.startswith("YES"):
             _, _, query = answer.partition(":")
+            logger.info(f"Router: {prompt[:80]!r} -> search {query.strip()!r} (raw: {answer[:80]!r})")
             return "search", (query.strip() or prompt)
+        # Anything else (including a blank/malformed reply) falls through to
+        # "none" - log it, since a model that doesn't follow the classifier
+        # format silently degrades to "just answer normally" with no error,
+        # which looks identical to "this genuinely doesn't need a search"
+        # from the outside.
+        logger.info(f"Router: {prompt[:80]!r} -> none (raw: {answer[:80]!r})")
         return "none", None
     except Exception as e:
         logger.error(f"Message routing error: {e}")
