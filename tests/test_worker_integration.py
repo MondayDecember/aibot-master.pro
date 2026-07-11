@@ -38,12 +38,16 @@ class FakeBot:
     def __init__(self):
         self.edits = []
         self.sent = []
+        self.documents = []
 
     async def edit_message_text(self, chat_id=None, message_id=None, text=None, parse_mode=None, reply_markup=None):
         self.edits.append(text)
 
     async def send_message(self, chat_id, text, parse_mode=None, reply_markup=None):
         self.sent.append(text)
+
+    async def send_document(self, chat_id, document):
+        self.documents.append((document.filename, document.data))
 
 
 @asynccontextmanager
@@ -112,6 +116,28 @@ def test_long_reply_is_split(monkeypatch):
     final_chunks = [bot.edits[-1]] + bot.sent
     assert all(len(c) <= worker.TELEGRAM_MESSAGE_LIMIT for c in final_chunks)
     assert "".join(final_chunks) == "x" * 9000
+
+
+def test_long_reply_with_code_sends_code_as_a_file(monkeypatch):
+    asyncio.run(init_db())
+    asyncio.run(clear_history(31352))
+
+    code = "print('line')\n" * 400  # long enough to push the whole reply past the limit
+    reply = "Вот объяснение. " * 300 + f"\n```python\n{code}\n```\n"
+    assert len(reply) > worker.TELEGRAM_MESSAGE_LIMIT
+
+    async def fake_generate(prompt, history_id, context_type, model_override=None, system_prompt=None, stats=None):
+        return reply
+
+    bot, _ = _run(monkeypatch, [_job(31352)], generate=fake_generate)
+
+    assert len(bot.documents) == 1
+    filename, data = bot.documents[0]
+    assert filename == "snippet.py"
+    assert data.decode("utf-8").strip() == code.strip()
+    # the code itself isn't repeated in the chat text - just a short note
+    all_text = " ".join([bot.edits[-1]] + bot.sent)
+    assert "print('line')" not in all_text
 
 
 def test_llm_failure_shows_error_not_crash(monkeypatch):
