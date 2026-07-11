@@ -221,6 +221,9 @@ BASE_SYSTEM_PROMPT = (
     "tell them to phrase it as \"напомни <когда> <что>\" (e.g. \"напомни "
     "завтра в 15:00 позвонить врачу\") or use the /remind command, and the "
     "bot will deliver a notification at that time. "
+    "When you write code, add brief comments for non-obvious parts directly "
+    "in the code itself, not only explained afterward in prose - someone "
+    "reading just the code block should be able to follow it. "
     "Always reply in the same language the user writes in."
 )
 
