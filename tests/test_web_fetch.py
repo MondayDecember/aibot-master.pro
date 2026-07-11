@@ -110,6 +110,86 @@ def test_gather_falls_back_to_snippets_when_pages_fail(monkeypatch):
     assert "http://a" in result
 
 
+# --- search backend selection: SearXNG (if configured) with a DDGS fallback ---
+
+class _FakeDDGS:
+    """Stand-in for ddgs.DDGS - same context-manager + .text() shape."""
+    def __init__(self, results):
+        self._results = results
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def text(self, query, max_results=3):
+        return self._results
+
+
+def test_ddgs_used_directly_when_searxng_not_configured(monkeypatch):
+    monkeypatch.setattr(web_search, "SEARXNG_URL", "")
+    import ddgs
+    monkeypatch.setattr(ddgs, "DDGS", lambda: _FakeDDGS([{"title": "DDG", "body": "direct", "href": "http://z"}]))
+
+    assert web_search._ddg_search("query") == [{"title": "DDG", "body": "direct", "href": "http://z"}]
+
+
+def test_searxng_used_when_configured(monkeypatch):
+    monkeypatch.setattr(web_search, "SEARXNG_URL", "http://searxng.local/search")
+    monkeypatch.setattr(
+        web_search, "_searxng_search",
+        lambda q, max_results=3: [{"title": "SX", "body": "from searxng", "href": "http://x"}],
+    )
+
+    assert web_search._ddg_search("query") == [{"title": "SX", "body": "from searxng", "href": "http://x"}]
+
+
+def test_falls_back_to_ddgs_when_searxng_errors(monkeypatch):
+    monkeypatch.setattr(web_search, "SEARXNG_URL", "http://searxng.local/search")
+
+    def boom(q, max_results=3):
+        raise RuntimeError("timeout")
+    monkeypatch.setattr(web_search, "_searxng_search", boom)
+
+    import ddgs
+    monkeypatch.setattr(ddgs, "DDGS", lambda: _FakeDDGS([{"title": "DDG", "body": "fallback", "href": "http://y"}]))
+
+    assert web_search._ddg_search("query") == [{"title": "DDG", "body": "fallback", "href": "http://y"}]
+
+
+def test_searxng_search_maps_results_and_sends_no_language_filter(monkeypatch):
+    """The bot is bilingual (en/ru) - a hardcoded language filter would skew
+    results for whichever language wasn't picked, so the request must not
+    send one."""
+    captured = {}
+
+    class _FakeResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"results": [
+                {"title": "T", "content": "C", "url": "http://u"},
+                {"title": "T2", "content": "C2", "url": "http://u2"},
+            ]}
+
+    def fake_get(url, params=None, timeout=None):
+        captured["url"] = url
+        captured["params"] = params
+        return _FakeResponse()
+
+    monkeypatch.setattr(web_search, "SEARXNG_URL", "http://searxng.local/search")
+    import requests
+    monkeypatch.setattr(requests, "get", fake_get)
+
+    result = web_search._searxng_search("test query", max_results=1)
+
+    assert result == [{"title": "T", "body": "C", "href": "http://u"}]  # capped to max_results
+    assert captured["url"] == "http://searxng.local/search"
+    assert "language" not in captured["params"]
+
+
 def test_gather_uses_page_text_when_available(monkeypatch):
     monkeypatch.setattr(
         web_search, "_ddg_search",

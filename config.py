@@ -57,13 +57,27 @@ ADMIN_USER_ID = int(_admin_raw) if _admin_raw.isdigit() else (_allowed_list[0] i
 # are always in whatever language the user writes in.
 BOT_LANGUAGE = os.getenv("BOT_LANGUAGE", "en").strip().lower()
 
-# Deep web search: after a DuckDuckGo search the bot OPENS the top N result
-# pages and reads their text, instead of answering from the ~300-char search
-# snippets alone. 0 = snippets only (old behaviour). More pages / more chars
-# = better answers but a larger prompt: make sure the model's context window
-# can take it (2 pages x 2000 chars is safe for the default 4k window).
+# Search engine for web search: a SearXNG instance (self-hosted, no rate
+# limits) if you have one, e.g. http://192.168.1.1:8080/search - needs
+# `formats: [html, json]` in SearXNG's settings.yml, JSON is disabled by
+# default. Empty = use the DDGS metasearch library (DuckDuckGo and others,
+# no setup needed but can get rate-limited under heavy use).
+SEARXNG_URL = os.getenv("SEARXNG_URL", "").strip()
+
+# Deep web search: after a search the bot OPENS the top N result pages and
+# reads their text, instead of answering from the ~300-char search snippets
+# alone. 0 = snippets only (old behaviour). More pages / more chars = better
+# answers but a larger prompt: make sure the model's context window can take
+# it (2 pages x 2000 chars is safe for the default 4k window).
 WEB_FETCH_PAGES = int(os.getenv("WEB_FETCH_PAGES", "2"))
 WEB_PAGE_MAX_CHARS = int(os.getenv("WEB_PAGE_MAX_CHARS", "2000"))
+# Hard cap on the *total* assembled web-search block (all pages/snippets
+# combined) regardless of how the two settings above are tuned - the real
+# safety net against blowing past the model's context window. Only raise
+# this together with MODEL_NUM_CTX: 2500 chars is safe on Ollama's default
+# ~4k-token context; an 8000 cap needs roughly an 8k+ token MODEL_NUM_CTX or
+# you'll get a 400 "exceeds context size" error.
+WEB_CONTEXT_MAX_CHARS = int(os.getenv("WEB_CONTEXT_MAX_CHARS", "2500"))
 
 # Anti-spam: how many LLM requests one user may queue per minute (0 = off).
 # Commands like /clear or /model are not counted - only messages that cost

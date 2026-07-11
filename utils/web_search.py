@@ -6,9 +6,7 @@ from urllib.parse import urlparse
 
 import aiohttp
 from yarl import URL
-from duckduckgo_search import DDGS
-
-from config import WEB_FETCH_PAGES, WEB_PAGE_MAX_CHARS
+from config import WEB_FETCH_PAGES, WEB_PAGE_MAX_CHARS, WEB_CONTEXT_MAX_CHARS, SEARXNG_URL
 
 logger = logging.getLogger(__name__)
 
@@ -41,14 +39,6 @@ def _is_public_url(url: str) -> bool:
             return False
     return True
 
-# Last line of defense against context-window overflow: WEB_FETCH_PAGES x
-# WEB_PAGE_MAX_CHARS can add up to ~4300 chars on its own (2 pages x 2000
-# chars + a third result's snippet) - on top of chat history and the system
-# prompt that was enough to blow a 4096-token model context and fail the
-# whole request with a 400 'exceeds context size' error. This caps the
-# *total* assembled context regardless of how those two settings are tuned.
-MAX_TOTAL_WEB_CONTEXT_CHARS = 2500
-
 # A regular browser UA - some sites answer 403 to obvious bots/empty agents
 _USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -59,8 +49,42 @@ _USER_AGENT = (
 _MAX_PAGE_BYTES = 1_000_000
 
 
+def _searxng_search(query: str, max_results: int = 3) -> list:
+    """Blocking SearXNG search - call via asyncio.to_thread. Returns results
+    in the same shape DDGS.text() used (title/body/href) so the rest of the
+    module is untouched. Requires `json` in SearXNG settings.yml formats -
+    disabled by default (see .env.example for SEARXNG_URL). No language
+    filter: the bot is bilingual and the query can be in either language, so
+    forcing one would skew results for the other."""
+    import requests
+    r = requests.get(
+        SEARXNG_URL,
+        params={"q": query, "format": "json"},
+        timeout=10,
+    )
+    r.raise_for_status()
+    return [
+        {
+            "title": x.get("title", ""),
+            "body": x.get("content", ""),
+            "href": x.get("url", ""),
+        }
+        for x in r.json().get("results", [])[:max_results]
+    ]
+
+
 def _ddg_search(query: str, max_results: int = 3) -> list:
-    """Blocking DuckDuckGo search - call via asyncio.to_thread."""
+    """Primary: a self-hosted SearXNG instance if SEARXNG_URL is set - no
+    rate limits, doesn't depend on a third-party search API. Fallback: the
+    DDGS metasearch library (DuckDuckGo and others), used outright when
+    SEARXNG_URL is empty and as a safety net if the SearXNG instance errors
+    or times out."""
+    if SEARXNG_URL:
+        try:
+            return _searxng_search(query, max_results)
+        except Exception as e:
+            logger.warning(f"SearXNG search failed ({e}), falling back to DDGS")
+    from ddgs import DDGS
     with DDGS() as ddgs:
         return list(ddgs.text(query, max_results=max_results))
 
@@ -118,8 +142,8 @@ def perform_web_search(query: str, max_results: int = 3, max_body_chars: int = 3
     Snippets-only search (no page visits). Kept for WEB_FETCH_PAGES=0 and
     as the fallback when page fetching fails. Blocking - call via
     asyncio.to_thread. Snippets are capped: local models often run with a
-    small context window, and uncapped DDG snippets on top of chat history
-    were enough to blow past it with a 400 'exceeds context size' error.
+    small context window, and uncapped snippets on top of chat history were
+    enough to blow past it with a 400 'exceeds context size' error.
     """
     logger.info(f"Performing web search for: {query}")
     try:
@@ -144,10 +168,11 @@ def perform_web_search(query: str, max_results: int = 3, max_body_chars: int = 3
 
 async def gather_web_context(query: str) -> str:
     """
-    Search DuckDuckGo and OPEN the top WEB_FETCH_PAGES result pages, feeding
-    their actual text to the model instead of only the ~300-char search
-    snippets. Pages that fail to load (paywall, 403, timeout) silently fall
-    back to their snippet. WEB_FETCH_PAGES=0 = snippets-only behaviour.
+    Search (SearXNG or DDGS, see _ddg_search) and OPEN the top WEB_FETCH_PAGES
+    result pages, feeding their actual text to the model instead of only the
+    ~300-char search snippets. Pages that fail to load (paywall, 403,
+    timeout) silently fall back to their snippet. WEB_FETCH_PAGES=0 =
+    snippets-only behaviour.
     """
     logger.info(f"Performing web search for: {query}")
     try:
@@ -178,6 +203,6 @@ async def gather_web_context(query: str) -> str:
             body = (result.get("body") or "No snippet").strip()[:300]
         formatted += f"[{idx}] {result.get('title', 'No Title')}\n"
         formatted += f"Source: {result.get('href', 'No link')}\n{body}\n\n"
-    if len(formatted) > MAX_TOTAL_WEB_CONTEXT_CHARS:
-        formatted = formatted[:MAX_TOTAL_WEB_CONTEXT_CHARS].rstrip() + "…"
+    if len(formatted) > WEB_CONTEXT_MAX_CHARS:
+        formatted = formatted[:WEB_CONTEXT_MAX_CHARS].rstrip() + "…"
     return formatted
