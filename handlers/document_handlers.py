@@ -6,6 +6,7 @@ from task_queue.enqueue import enqueue_llm_job
 from utils.doc_helper import extract_document_text
 from utils.group import gate_group_message, history_key
 from utils.reactions import react_seen
+from utils.telegram_helpers import answer_resilient
 from utils.texts import t
 
 router = Router()
@@ -39,7 +40,7 @@ async def handle_document(message: Message, redis):
     if not should_handle:
         return
     await react_seen(message)
-    bot_message = await message.answer(t("reading_document"), parse_mode="HTML")
+    bot_message = await answer_resilient(message, t("reading_document"), parse_mode="HTML")
 
     text, error = await extract_document_text(message.bot, message.document)
     if error:

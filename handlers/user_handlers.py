@@ -20,6 +20,7 @@ from utils.reactions import react_seen
 from utils.imagegen_client import generate_image
 from utils.llm_backend import list_installed_models
 from utils.llm_client import _resolve_model
+from utils.telegram_helpers import answer_resilient
 from utils.texts import t, set_current_language
 from utils.web_search import gather_web_context
 
@@ -84,7 +85,7 @@ async def cmd_setprompt(message: Message, command: CommandObject):
 @router.message(Command("summary"))
 async def cmd_summary(message: Message, redis):
     """On-demand summary of the current dialog (runs through the LLM queue)."""
-    bot_message = await message.answer(t("summary_working"), parse_mode="HTML")
+    bot_message = await answer_resilient(message, t("summary_working"), parse_mode="HTML")
     await redis.rpush("llm_queue", json.dumps({
         "chat_id": message.chat.id,
         "user_id": message.from_user.id,
@@ -130,7 +131,7 @@ async def cb_regen(callback: CallbackQuery, redis):
         await callback.message.edit_reply_markup(reply_markup=None)
     except Exception:
         pass
-    bot_message = await callback.message.answer(t("thinking"), parse_mode="HTML")
+    bot_message = await answer_resilient(callback.message, t("thinking"), parse_mode="HTML")
     await redis.rpush("llm_queue", json.dumps({
         "chat_id": callback.message.chat.id,
         "user_id": callback.from_user.id,
@@ -475,7 +476,7 @@ async def cmd_remind(message: Message, command: CommandObject, redis):
     if not query:
         await message.answer(t("remind_usage"))
         return
-    bot_message = await message.answer(t("remind_parsing"), parse_mode="HTML")
+    bot_message = await answer_resilient(message, t("remind_parsing"), parse_mode="HTML")
     await enqueue_llm_job(
         redis, message, bot_message,
         prompt=query,
@@ -597,7 +598,7 @@ async def cb_nav_web(callback: CallbackQuery, state: FSMContext):
 
 async def _run_web_search(message: Message, redis, query: str):
     await react_seen(message)
-    bot_message = await message.answer(t("searching"), parse_mode="HTML")
+    bot_message = await answer_resilient(message, t("searching"), parse_mode="HTML")
 
     search_results = await gather_web_context(query)
 
@@ -637,7 +638,7 @@ async def _run_image_generation(message: Message, redis, prompt: str):
     if await over_rate_limit(redis, message.from_user.id):
         await message.answer(t("rate_limited", limit=RATE_LIMIT_PER_MINUTE))
         return
-    status = await message.answer(t("generating_image"), parse_mode="HTML")
+    status = await answer_resilient(message, t("generating_image"), parse_mode="HTML")
     image_bytes = await generate_image(prompt)
     if not image_bytes:
         await status.edit_text(t("image_gen_failed"))
@@ -717,7 +718,7 @@ async def handle_text(message: Message, redis, state: FSMContext):
     await react_seen(message)  # 👀 "seen, working on it"
     # "напомни завтра..." becomes a reminder, not a chat turn
     if is_reminder_request(text):
-        bot_message = await message.answer(t("remind_parsing"), parse_mode="HTML")
+        bot_message = await answer_resilient(message, t("remind_parsing"), parse_mode="HTML")
         await enqueue_llm_job(
             redis, message, bot_message,
             prompt=text,
@@ -726,7 +727,7 @@ async def handle_text(message: Message, redis, state: FSMContext):
             history_id=history_key(message),
         )
         return
-    bot_message = await message.answer(t("thinking"), parse_mode="HTML")
+    bot_message = await answer_resilient(message, t("thinking"), parse_mode="HTML")
     # In groups prefix the author's name so the shared history stays readable
     history_content = f"{message.from_user.first_name}: {text}" if is_group else text
     await enqueue_llm_job(

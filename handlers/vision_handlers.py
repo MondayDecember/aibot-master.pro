@@ -6,6 +6,7 @@ from task_queue.enqueue import enqueue_llm_job
 from utils.group import gate_group_message, history_key
 from utils.ocr_helper import extract_text_from_image
 from utils.reactions import react_seen
+from utils.telegram_helpers import answer_resilient
 from utils.texts import t
 from utils.vision_helper import get_image_base64
 
@@ -19,7 +20,7 @@ async def handle_photo(message: Message, redis):
     if not should_handle:
         return
     await react_seen(message)
-    bot_message = await message.answer(t("processing_image"), parse_mode="HTML")
+    bot_message = await answer_resilient(message, t("processing_image"), parse_mode="HTML")
 
     # Get highest quality photo
     photo = message.photo[-1]
