@@ -10,6 +10,14 @@ _MAX_RETRIES = 2
 _RETRY_DELAY = 1.5
 
 
+def is_forwarded(message: Message) -> bool:
+    """True if the message was forwarded from somewhere (a channel post, a
+    news item, another user's message). forward_origin is the Bot API 7.0+
+    field; forward_date is the legacy one - check both for compatibility."""
+    return getattr(message, "forward_origin", None) is not None \
+        or getattr(message, "forward_date", None) is not None
+
+
 async def answer_resilient(message: Message, *args, **kwargs) -> Message:
     """message.answer() with a couple of retries on transient network
     failures - observed live: Docker Desktop's Windows/WSL2 network layer

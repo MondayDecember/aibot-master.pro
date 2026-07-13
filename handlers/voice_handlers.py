@@ -1,11 +1,12 @@
 import html
 from aiogram import Router, F
 from aiogram.types import Message
+from config import COMMENT_ON_FORWARDS
 from task_queue.enqueue import enqueue_llm_job
 from utils.group import gate_group_message, history_key
 from utils.reactions import react_seen
 from utils.reminders import is_reminder_request
-from utils.telegram_helpers import answer_resilient
+from utils.telegram_helpers import answer_resilient, is_forwarded
 from utils.texts import t
 from utils.voice_helper import transcribe_voice
 
@@ -46,10 +47,17 @@ async def handle_voice(message: Message, redis):
         )
         return
 
+    # A forwarded voice note -> comment on what was said, don't just reply to it
+    prompt = transcription
+    history_content = transcription
+    if COMMENT_ON_FORWARDS and is_forwarded(message):
+        prompt = t("comment_prompt", text=transcription)
+        history_content = f"[переслано, голосовое] {transcription}"
+
     await enqueue_llm_job(
         redis, message, bot_message,
-        prompt=transcription,
-        history_content=transcription,
+        prompt=prompt,
+        history_content=history_content,
         context_type="voice",
         history_id=history_key(message),
     )

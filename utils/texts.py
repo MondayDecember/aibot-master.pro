@@ -37,6 +37,19 @@ _TEXTS = {
         "processing_image": "<i>🖼 Processing image...</i>",
         "image_failed": "⚠️ Sorry, failed to process the image.",
         "image_default_caption": "What's in this image?",
+        "comment_image_caption": (
+            "The user forwarded you this image - likely a news post, a screenshot, "
+            "or someone's message. Give your own short reaction and commentary "
+            "(your take, useful context, read any text on it, flag it if it looks "
+            "fake or dubious). Don't just describe what's literally shown."
+        ),
+        "comment_prompt": (
+            "The user forwarded you the following (a news post, an article, or "
+            "someone else's message). Give your own short reaction and commentary "
+            "in a couple of sentences - your take, useful context, or flag it if "
+            "it looks dubious or fake. Don't just repeat or restate it.\n\n"
+            "Forwarded content:\n{text}"
+        ),
         "ocr_context": "Text recognized on the image (OCR):\n{text}",
         "transcribing": "<i>🎙 Transcribing voice message...</i>",
         "heard": "<i>🗣 Heard:</i> {text}\n\n<i>💭 Thinking...</i>",
@@ -250,6 +263,19 @@ _TEXTS = {
         "processing_image": "<i>🖼 Обрабатываю изображение...</i>",
         "image_failed": "⚠️ Не удалось обработать изображение.",
         "image_default_caption": "Что на этом изображении?",
+        "comment_image_caption": (
+            "Пользователь переслал тебе это изображение — скорее всего новость, "
+            "скриншот или чьё-то сообщение. Дай свой короткий комментарий и реакцию "
+            "(своё мнение, полезный контекст, прочитай текст на картинке, отметь, "
+            "если это похоже на фейк). Не описывай буквально, что нарисовано."
+        ),
+        "comment_prompt": (
+            "Пользователь переслал тебе следующее (новость, статью или чьё-то "
+            "сообщение). Дай свой короткий комментарий и реакцию в паре предложений "
+            "— своё мнение, полезный контекст или пометь, если это похоже на фейк. "
+            "Не пересказывай и не повторяй дословно.\n\n"
+            "Пересланное содержимое:\n{text}"
+        ),
         "ocr_context": "Текст, распознанный на изображении (OCR):\n{text}",
         "transcribing": "<i>🎙 Распознаю голосовое сообщение...</i>",
         "heard": "<i>🗣 Услышал:</i> {text}\n\n<i>💭 Думаю...</i>",

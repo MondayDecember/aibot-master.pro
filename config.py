@@ -34,6 +34,11 @@ STREAM_EDIT_INTERVAL = float(os.getenv("STREAM_EDIT_INTERVAL", "1.0"))
 # reactions, in which case it silently does nothing.
 REACT_ON_SEEN = os.getenv("REACT_ON_SEEN", "true").strip().lower() in ("1", "true", "yes", "on")
 
+# When you FORWARD something to the bot (a news post, someone's message, a
+# voice note), reply with your own commentary/reaction instead of a literal
+# description. Off = forwards are handled like any other message.
+COMMENT_ON_FORWARDS = os.getenv("COMMENT_ON_FORWARDS", "true").strip().lower() in ("1", "true", "yes", "on")
+
 # Access control: comma-separated telegram user IDs allowed to use the bot.
 # Empty = the bot answers everyone. Rejected users are shown their ID so the
 # owner can add them.

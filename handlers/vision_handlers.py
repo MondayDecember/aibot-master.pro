@@ -2,11 +2,12 @@ import base64
 
 from aiogram import Router, F
 from aiogram.types import Message
+from config import COMMENT_ON_FORWARDS
 from task_queue.enqueue import enqueue_llm_job
 from utils.group import gate_group_message, history_key
 from utils.ocr_helper import extract_text_from_image
 from utils.reactions import react_seen
-from utils.telegram_helpers import answer_resilient
+from utils.telegram_helpers import answer_resilient, is_forwarded
 from utils.texts import t
 from utils.vision_helper import get_image_base64
 
@@ -31,7 +32,12 @@ async def handle_photo(message: Message, redis):
         await bot_message.edit_text(t("image_failed"))
         return
 
-    caption = caption_text or t("image_default_caption")
+    # A forwarded image (news post, screenshot) -> comment on it; otherwise
+    # answer the caption's question or default to describing it.
+    if COMMENT_ON_FORWARDS and is_forwarded(message):
+        caption = f"{t('comment_image_caption')}\n\n{caption_text}" if caption_text else t("comment_image_caption")
+    else:
+        caption = caption_text or t("image_default_caption")
 
     # OCR the photo (cheap, CPU Tesseract) and hand the recognized text to the
     # vision model as extra context - vision models often misread small/dense

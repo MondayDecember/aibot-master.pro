@@ -9,7 +9,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 from aiogram.filters import CommandStart, Command, CommandObject
-from config import AVAILABLE_MODELS, TEXT_MODEL, PERSONAS, DB_PATH, IMAGEGEN_ENABLED, VOICE_REPLIES, RATE_LIMIT_PER_MINUTE, TZINFO
+from config import AVAILABLE_MODELS, TEXT_MODEL, PERSONAS, DB_PATH, IMAGEGEN_ENABLED, VOICE_REPLIES, RATE_LIMIT_PER_MINUTE, TZINFO, COMMENT_ON_FORWARDS
 from db.database import add_message, clear_history, get_user_model, set_user_model, get_user_persona, set_user_persona, get_stats, list_reminders, delete_reminder, get_voice_pref, set_voice_pref, start_new_session, set_user_language, get_user_language, get_custom_prompt, set_custom_prompt, get_usage_summary, get_recent_usage
 from task_queue.enqueue import enqueue_llm_job, over_rate_limit
 from utils.tts_helper import synthesize_speech
@@ -21,7 +21,7 @@ from utils.reactions import react_seen
 from utils.imagegen_client import generate_image
 from utils.llm_backend import list_installed_models
 from utils.llm_client import _resolve_model
-from utils.telegram_helpers import answer_resilient
+from utils.telegram_helpers import answer_resilient, is_forwarded
 from utils.texts import t, set_current_language
 from utils.web_search import gather_web_context
 
@@ -748,9 +748,14 @@ async def handle_text(message: Message, redis, state: FSMContext):
     bot_message = await answer_resilient(message, t("thinking"), parse_mode="HTML")
     # In groups prefix the author's name so the shared history stays readable
     history_content = f"{message.from_user.first_name}: {text}" if is_group else text
+    # Forwarded content -> the bot comments on it instead of answering literally
+    prompt = text
+    if COMMENT_ON_FORWARDS and is_forwarded(message):
+        prompt = t("comment_prompt", text=text)
+        history_content = f"[переслано] {history_content}"
     await enqueue_llm_job(
         redis, message, bot_message,
-        prompt=text,
+        prompt=prompt,
         history_content=history_content,
         context_type="text",
         history_id=history_key(message),
